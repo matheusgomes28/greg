@@ -1,6 +1,7 @@
 use std::io;
 
 pub mod app;
+pub mod models;
 
 use app::App;
 
@@ -12,7 +13,10 @@ fn try_main() -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
 
-    match try_main() {
+    let result = try_main();
+    ratatui::restore();
+
+    match result {
         Ok(_) => println!("calendar finished with no errrors"),
         Err(e) =>  eprintln!("calendar finished with errors: {}", e),
     }
