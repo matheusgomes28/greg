@@ -1,7 +1,9 @@
 
+use std::ops::Rem;
+
 use crate::{io, models::CalendarView};
 
-use chrono::DateTime;
+use chrono::{DateTime, Datelike, Local};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind
 };
@@ -26,9 +28,24 @@ use ratatui::{
     }
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct App {
     exit: bool,
+    current_month: u8,
+    current_year: i32,
+}
+
+impl Default for App {
+
+    fn default() -> Self {
+        let time_now = Local::now();
+
+        App{
+            exit: false,
+            current_month: time_now.month() as u8,
+            current_year: time_now.year(),
+        }
+    }
 }
 
 impl App {
@@ -52,7 +69,7 @@ impl App {
             // crossterm also emits key release and repeat events on Windows.
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 self.handle_key_event(key_event)
-            }
+            },
             _ => {}
         };
         Ok(())
@@ -60,6 +77,8 @@ impl App {
 
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
+            KeyCode::Right => self.next_calendar(),
+            KeyCode::Left => self.prev_calendar(),
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
             _ => {}
         }
@@ -67,6 +86,17 @@ impl App {
 
     fn exit(&mut self) {
         self.exit = true;
+    }
+
+    fn next_calendar(&mut self) {
+        self.current_year += self.current_month as i32 / 12;
+        self.current_month = self.current_month.rem_euclid(12) + 1;
+    }
+
+    fn prev_calendar(&mut self) {
+        // TODO: Need to implement this
+        // self.current_year = self.current_year - (self.current_month / 12);
+        // self.current_month = (self.current_month % 12) - 1;
     }
 
     pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {
@@ -97,8 +127,9 @@ impl App {
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let datetime = DateTime::parse_from_str("2026 Sep 2 12:09:14.274 +0000", "%Y %b %d %H:%M:%S%.3f %z").unwrap();
-        let calendar = CalendarView::from(datetime);
+
+        // TODO: if we fail to create this, we probably want to exit with error
+        let calendar = CalendarView::new(self.current_month, self.current_year).unwrap();
 
         let block = Block::bordered()
             .title_alignment(ratatui::layout::HorizontalAlignment::Center)
