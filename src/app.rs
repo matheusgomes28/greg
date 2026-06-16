@@ -1,9 +1,7 @@
 
-use std::ops::Rem;
-
 use crate::{io, models::CalendarView};
 
-use chrono::{DateTime, Datelike, Local};
+use chrono::{Datelike, Local};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind
 };
@@ -31,6 +29,7 @@ use ratatui::{
 #[derive(Debug)]
 pub struct App {
     exit: bool,
+    current_day: Option<u8>,
     current_month: u8,
     current_year: i32,
 }
@@ -42,6 +41,7 @@ impl Default for App {
 
         App{
             exit: false,
+            current_day: Some(time_now.day() as u8),
             current_month: time_now.month() as u8,
             current_year: time_now.year(),
         }
@@ -66,7 +66,7 @@ impl App {
     fn handle_events(&mut self) -> io::Result<()> {
         match event::read()? {
             // it's important to check that the event is a key press event as
-            // crossterm also emits key release and repeat events on Windows.
+            // crossterm also emits key release and repeat events on Windows.}
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 self.handle_key_event(key_event)
             },
@@ -77,8 +77,8 @@ impl App {
 
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
-            KeyCode::Right => self.next_calendar(),
-            KeyCode::Left => self.prev_calendar(),
+            KeyCode::Right | KeyCode::Char('j') => self.next_calendar(),
+            KeyCode::Left | KeyCode::Char('k') => self.prev_calendar(),
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
             _ => {}
         }
@@ -91,12 +91,18 @@ impl App {
     fn next_calendar(&mut self) {
         self.current_year += self.current_month as i32 / 12;
         self.current_month = self.current_month.rem_euclid(12) + 1;
+
+        // TODO: need to sort out todays day back
+        self.current_day = None;
     }
 
     fn prev_calendar(&mut self) {
         // TODO: Need to implement this
-        // self.current_year = self.current_year - (self.current_month / 12);
-        // self.current_month = (self.current_month % 12) - 1;
+        self.current_year -= (12 - (self.current_month as i32 - 1).rem_euclid(12)) / 12;
+        self.current_month = if self.current_month == 1 { 12 } else { self.current_month - 1 } ;
+
+        // TODO: need to sort out todays day back
+        self.current_day = None;
     }
 
     pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {
@@ -109,12 +115,19 @@ impl App {
         }
     }
 
-    pub fn render_days(&self, cells: &[Rect], buf: &mut Buffer, start_day: i32, n_days: usize) {
+    pub fn render_days(&self, cells: &[Rect], buf: &mut Buffer, start_day: i32, n_days: usize, today: Option<i32>) {
         for (i, &cell) in cells.iter().take(n_days + start_day as usize).enumerate() {
             // Offset the value of each cell by the starting day,
             // and only draw cells that have a value of > 1
             let month_day = (i as i32) - start_day + 1;
             if month_day <= 0 {
+                continue;
+            }
+
+            if let Some(day) = today && day == month_day {
+                let text = Text::styled(format!("{}", month_day), Style::default().bold().blue());
+                Paragraph::new(text)
+                    .render(cell, buf);
                 continue;
             }
 
@@ -129,11 +142,12 @@ impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
 
         // TODO: if we fail to create this, we probably want to exit with error
-        let calendar = CalendarView::new(self.current_month, self.current_year).unwrap();
+        let calendar = CalendarView::new(self.current_day, self.current_month, self.current_year).unwrap();
 
+        let title_text = format!("{} {}", self.current_year, calendar.month_name);
         let block = Block::bordered()
             .title_alignment(ratatui::layout::HorizontalAlignment::Center)
-            .title(Line::from(calendar.month_name));
+            .title(Line::from(title_text));
 
         let col_constraints = (0..7).map(|_| Constraint::Length(4));
         let row_constraits = (0..7).map(|_| Constraint::Length(1));
@@ -153,9 +167,51 @@ impl Widget for &App {
         let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
 
         self.render_weeks_header(&header_cells, buf);
-        self.render_days(&weeks_cells, buf, calendar.start_day as i32, calendar.n_days as usize);
+        self.render_days(&weeks_cells, buf, calendar.start_day as i32, calendar.n_days as usize, self.current_day.map(|d| d as i32));
 
         block.render(area, buf);
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+
+    #[rstest]
+    #[case::jan_2026(false, 1, 2026, None, 2, 2026)]
+    #[case::dec_2026(false, 12, 2026, None, 1, 2027)]
+    #[case::dec_1999(false, 12, 1999, None, 1, 2000)]
+    fn next_calendar(#[case] exit: bool, #[case] current_month: u8, #[case] current_year: i32, #[case] current_day: Option<u8>, #[case] exp_month: u8, #[case] exp_year: i32) {
+        let mut app = App{
+            exit,
+            current_month,
+            current_year,
+            current_day,
+        };
+
+        app.next_calendar();
+
+        assert_eq!(exp_month, app.current_month);
+        assert_eq!(exp_year, app.current_year);
+    }
+
+    #[rstest]
+    #[case::jan_2026(false, 1, 2026, None, 12, 2025)]
+    #[case::dec_2026(false, 12, 2026, None, 11, 2026)]
+    fn prev_calendar(#[case] exit: bool, #[case] current_month: u8, #[case] current_year: i32, #[case] current_day: Option<u8>, #[case] exp_month: u8, #[case] exp_year: i32) {
+        let mut app = App{
+            exit,
+            current_month,
+            current_year,
+            current_day,
+        };
+
+        app.prev_calendar();
+
+        assert_eq!(exp_month, app.current_month);
+        assert_eq!(exp_year, app.current_year);
+    }
+}

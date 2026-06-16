@@ -14,18 +14,19 @@ use std::convert::From;
 pub struct CalendarView {
     pub start_day: u8,
     pub n_days: u8,
+    pub today: Option<u8>,
     pub month_name: String,
 }
 
 impl CalendarView {
 
-    pub fn new(month: u8, year: i32) -> anyhow::Result<CalendarView> {
+    pub fn new(day: Option<u8>, month: u8, year: i32) -> anyhow::Result<CalendarView> {
         if year < 0 {
             anyhow::bail!("calendar cannot receive a negative number");
         }
 
         // TODO: There's probably a way to just use the date time here
-        let dt = NaiveDate::from_ymd_opt(year, month as u32, 1)
+        let dt = NaiveDate::from_ymd_opt(year, month as u32, day.unwrap_or(1) as u32)
             .context("could not create internal naive data")?
             .and_hms_opt(0, 0, 1)
             .context("could not add zero hours")?
@@ -42,7 +43,7 @@ impl Default for CalendarView {
 
     fn default() -> Self {
         let time_now = Local::now();
-        CalendarView::new(time_now.month() as u8, time_now.year()).unwrap()
+        CalendarView::new(Some(time_now.day() as u8), time_now.month() as u8, time_now.year()).unwrap()
     }
 }
 
@@ -52,8 +53,8 @@ impl<T> From<DateTime<T>> for CalendarView where T: TimeZone  {
         // whereas the Weekday considers 0 to be Monday.
         let weekday = datetime.weekday().succ() as i32;
 
-        let month_day = datetime.day0() as i32; // 1
-        let target_day = (weekday - month_day).rem_euclid(7) as u8; // 
+        let today = datetime.day0() as i32; // 1
+        let target_day = (weekday - today).rem_euclid(7) as u8; // 
 
         // Safe: target day will always be 0-6
         // let start_day= Weekday::try_from(target_day).unwrap().num_days_from_monday() as u8;
@@ -69,6 +70,8 @@ impl<T> From<DateTime<T>> for CalendarView where T: TimeZone  {
         CalendarView{
             start_day,
             n_days,
+            today: Some(today as u8 + 1),
+            // TODO: Can probably remove the month_name - don't need it
             month_name
         }
     }
@@ -114,7 +117,7 @@ mod tests {
     #[case::november(11, 2026, 0, 30, "November")]
     #[case::december(12, 2026, 2, 31, "December")]
     fn correct_calendars_2026(#[case] input_month: u8, #[case] input_year: i32, #[case] exp_start: u8, #[case] exp_days: u8, #[case] exp_month: &str) -> anyhow::Result<()> {
-        let calendar_view = CalendarView::new(input_month, input_year)?;
+        let calendar_view = CalendarView::new(None, input_month, input_year)?;
 
         assert_eq!(calendar_view.start_day, exp_start);
         assert_eq!(calendar_view.n_days, exp_days);
@@ -129,7 +132,7 @@ mod tests {
     #[case::negative_year(2, -1)]
     #[case::both_incorrect(15, -1)]
     fn incorrect_date(#[case] month: u8, #[case] year: i32) {
-        let maybe_calendar = CalendarView::new(month, year);
+        let maybe_calendar = CalendarView::new(None, month, year);
         assert!(maybe_calendar.is_err());
     }
 }
