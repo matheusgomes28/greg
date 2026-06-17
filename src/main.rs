@@ -2,6 +2,7 @@ use std::io;
 
 pub mod app;
 pub mod models;
+pub mod views;
 
 use app::App;
 

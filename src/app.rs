@@ -1,5 +1,5 @@
 
-use crate::{io, models::CalendarView};
+use crate::{io, models::CalendarModel, views::CalendarView};
 
 use chrono::{Datelike, Local};
 use crossterm::event::{
@@ -8,30 +8,18 @@ use crossterm::event::{
 
 use ratatui::{
     DefaultTerminal,
-    Frame,
-    buffer::Buffer,
-    layout::{
-        Constraint,
-        Layout,
-        Rect
-    },
-    style::{Color, Style},
-    text::{
-        Line, Span, Text
-    },
-    widgets::{
-        Block,
-        Paragraph,
-        Widget
-    }
+    Frame
 };
 
 #[derive(Debug)]
 pub struct App {
     exit: bool,
-    current_day: Option<u8>,
+
     current_month: u8,
     current_year: i32,
+
+    calendar_model: CalendarModel,
+    calendar_view: CalendarView,
 }
 
 impl Default for App {
@@ -39,17 +27,25 @@ impl Default for App {
     fn default() -> Self {
         let time_now = Local::now();
 
+        let calendar_model = CalendarModel::from(time_now);
+
         App{
             exit: false,
-            current_day: Some(time_now.day() as u8),
             current_month: time_now.month() as u8,
             current_year: time_now.year(),
+            calendar_model: calendar_model.clone(),
+            calendar_view: CalendarView{
+                month_name: calendar_model.month_name,
+                start_day: calendar_model.start_day,
+                year: time_now.year(),
+                n_days: calendar_model.n_days as usize,
+                current_day: Some(time_now.day() as u8)
+            }
         }
     }
 }
 
 impl App {
-
     /// runs the application's main loop until the user quits
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         while !self.exit {
@@ -60,7 +56,8 @@ impl App {
     }
 
     fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, frame.area());
+        // This is where we need the view!
+        frame.render_widget(&self.calendar_view, frame.area());
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
@@ -89,11 +86,20 @@ impl App {
     }
 
     fn next_calendar(&mut self) {
+
         self.current_year += self.current_month as i32 / 12;
         self.current_month = self.current_month.rem_euclid(12) + 1;
 
-        // TODO: need to sort out todays day back
-        self.current_day = None;
+        // TODO: ideally we would update instead of recreate?
+        self.calendar_model = CalendarModel::new(None, self.current_month, self.current_year).unwrap();
+
+        self.calendar_view = CalendarView{
+            month_name: self.calendar_model.month_name.clone(),
+            start_day: self.calendar_model.start_day,
+            year: self.current_year,
+            n_days: self.calendar_model.n_days as usize,
+            current_day: None
+        };
     }
 
     fn prev_calendar(&mut self) {
@@ -101,78 +107,18 @@ impl App {
         self.current_year -= (12 - (self.current_month as i32 - 1).rem_euclid(12)) / 12;
         self.current_month = if self.current_month == 1 { 12 } else { self.current_month - 1 } ;
 
-        // TODO: need to sort out todays day back
-        self.current_day = None;
-    }
+        // TODO: ideally we would update instead of recreate?
+        self.calendar_model = CalendarModel::new(None, self.current_month, self.current_year).unwrap();
 
-    pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {
-        let header_style = Style::default()
-            .bold()
-            .fg(Color::Blue);
-
-        for (day, &cell) in ["S", "M", "T", "W", "T", "F", "S"].into_iter().zip(row) {
-            Span::styled(day, header_style).render(cell, buf);
-        }
-    }
-
-    pub fn render_days(&self, cells: &[Rect], buf: &mut Buffer, start_day: i32, n_days: usize, today: Option<i32>) {
-        for (i, &cell) in cells.iter().take(n_days + start_day as usize).enumerate() {
-            // Offset the value of each cell by the starting day,
-            // and only draw cells that have a value of > 1
-            let month_day = (i as i32) - start_day + 1;
-            if month_day <= 0 {
-                continue;
-            }
-
-            if let Some(day) = today && day == month_day {
-                let text = Text::styled(format!("{}", month_day), Style::default().bold().blue());
-                Paragraph::new(text)
-                    .render(cell, buf);
-                continue;
-            }
-
-            let text = Text::styled(format!("{}", month_day), Style::default().red());
-            Paragraph::new(text)
-                .render(cell, buf);
-        }
+        self.calendar_view = CalendarView{
+            month_name: self.calendar_model.month_name.clone(),
+            start_day: self.calendar_model.start_day,
+            year: self.current_year,
+            n_days: self.calendar_model.n_days as usize,
+            current_day: None
+        };
     }
 }
-
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-
-        // TODO: if we fail to create this, we probably want to exit with error
-        let calendar = CalendarView::new(self.current_day, self.current_month, self.current_year).unwrap();
-
-        let title_text = format!("{} {}", self.current_year, calendar.month_name);
-        let block = Block::bordered()
-            .title_alignment(ratatui::layout::HorizontalAlignment::Center)
-            .title(Line::from(title_text));
-
-        let col_constraints = (0..7).map(|_| Constraint::Length(4));
-        let row_constraits = (0..7).map(|_| Constraint::Length(1));
-
-        let horizontal = Layout::horizontal(col_constraints).spacing(0);
-        let vertical = Layout::vertical(row_constraits).spacing(0);
-
-        let inner_area = block
-            .inner(area)
-            .centered_horizontally(Constraint::Length(7 * 4))
-            .centered_vertically(Constraint::Length(7 * 1));
-
-        let rows = vertical.split(inner_area);
-        let cells = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
-
-        let header_cells = cells.clone().take(7).collect::<Vec<_>>();
-        let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
-
-        self.render_weeks_header(&header_cells, buf);
-        self.render_days(&weeks_cells, buf, calendar.start_day as i32, calendar.n_days as usize, self.current_day.map(|d| d as i32));
-
-        block.render(area, buf);
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
@@ -184,34 +130,57 @@ mod tests {
     #[case::jan_2026(false, 1, 2026, None, 2, 2026)]
     #[case::dec_2026(false, 12, 2026, None, 1, 2027)]
     #[case::dec_1999(false, 12, 1999, None, 1, 2000)]
-    fn next_calendar(#[case] exit: bool, #[case] current_month: u8, #[case] current_year: i32, #[case] current_day: Option<u8>, #[case] exp_month: u8, #[case] exp_year: i32) {
+    fn next_calendar(#[case] exit: bool, #[case] current_month: u8, #[case] current_year: i32, #[case] current_day: Option<u8>, #[case] exp_month: u8, #[case] exp_year: i32) -> anyhow::Result<()> {
+
+        let calendar_model = CalendarModel::new(None, current_month, current_year)?;
+        let calendar_view = CalendarView{
+            month_name: calendar_model.month_name.clone(),
+            start_day: calendar_model.start_day,
+            year: current_year,
+            n_days: calendar_model.n_days as usize,
+            current_day: None
+        };
+
         let mut app = App{
             exit,
             current_month,
             current_year,
-            current_day,
+            calendar_model,
+            calendar_view,
         };
 
         app.next_calendar();
 
         assert_eq!(exp_month, app.current_month);
         assert_eq!(exp_year, app.current_year);
+
+        Ok(())
     }
 
     #[rstest]
     #[case::jan_2026(false, 1, 2026, None, 12, 2025)]
     #[case::dec_2026(false, 12, 2026, None, 11, 2026)]
-    fn prev_calendar(#[case] exit: bool, #[case] current_month: u8, #[case] current_year: i32, #[case] current_day: Option<u8>, #[case] exp_month: u8, #[case] exp_year: i32) {
+    fn prev_calendar(#[case] exit: bool, #[case] current_month: u8, #[case] current_year: i32, #[case] current_day: Option<u8>, #[case] exp_month: u8, #[case] exp_year: i32) -> anyhow::Result<()> {
+        let calendar_model = CalendarModel::new(None, current_month, current_year)?;
+        let calendar_view = CalendarView{
+            month_name: calendar_model.month_name.clone(),
+            start_day: calendar_model.start_day,
+            year: current_year,
+            n_days: calendar_model.n_days as usize,
+            current_day: None
+        };
         let mut app = App{
             exit,
             current_month,
             current_year,
-            current_day,
+            calendar_model,
+            calendar_view,
         };
 
         app.prev_calendar();
 
         assert_eq!(exp_month, app.current_month);
         assert_eq!(exp_year, app.current_year);
+        Ok(())
     }
 }

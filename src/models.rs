@@ -10,17 +10,17 @@ use std::convert::From;
 // has. We may eventually implement startt day in relation
 // to a particular day of the week, so we can configure the
 // view itself to start on any day of the week.
-#[derive(Debug)]
-pub struct CalendarView {
+#[derive(Debug, Clone)]
+pub struct CalendarModel {
     pub start_day: u8,
     pub n_days: u8,
     pub today: Option<u8>,
     pub month_name: String,
 }
 
-impl CalendarView {
+impl CalendarModel {
 
-    pub fn new(day: Option<u8>, month: u8, year: i32) -> anyhow::Result<CalendarView> {
+    pub fn new(day: Option<u8>, month: u8, year: i32) -> anyhow::Result<CalendarModel> {
         if year < 0 {
             anyhow::bail!("calendar cannot receive a negative number");
         }
@@ -35,19 +35,19 @@ impl CalendarView {
             .context("could not add timezone")?;
 
 
-        Ok(CalendarView::from(dt))
+        Ok(CalendarModel::from(dt))
     }
 }
 
-impl Default for CalendarView {
+impl Default for CalendarModel {
 
     fn default() -> Self {
         let time_now = Local::now();
-        CalendarView::new(Some(time_now.day() as u8), time_now.month() as u8, time_now.year()).unwrap()
+        CalendarModel::new(Some(time_now.day() as u8), time_now.month() as u8, time_now.year()).unwrap()
     }
 }
 
-impl<T> From<DateTime<T>> for CalendarView where T: TimeZone  {
+impl<T> From<DateTime<T>> for CalendarModel where T: TimeZone  {
     fn from(datetime: DateTime<T>) -> Self {
         // Here we do a succ() because our calendar starts Sunday,
         // whereas the Weekday considers 0 to be Monday.
@@ -67,7 +67,7 @@ impl<T> From<DateTime<T>> for CalendarView where T: TimeZone  {
             .map(|a| a.name().to_string())
             .unwrap();
 
-        CalendarView{
+        CalendarModel{
             start_day,
             n_days,
             today: Some(today as u8 + 1),
@@ -96,7 +96,7 @@ mod tests {
     #[case::year_2044("2044 Feb 2 12:09:14.274 +0000")]
     fn correct_leap_year_feb_days(#[case] dt_str: &str) -> anyhow::Result<()> {
         let desired_date = DateTime::parse_from_str(dt_str, "%Y %b %d %H:%M:%S%.3f %z")?;
-        let calendar = CalendarView::from(desired_date);
+        let calendar = CalendarModel::from(desired_date);
 
         assert_eq!(calendar.n_days, 29);
 
@@ -117,7 +117,7 @@ mod tests {
     #[case::november(11, 2026, 0, 30, "November")]
     #[case::december(12, 2026, 2, 31, "December")]
     fn correct_calendars_2026(#[case] input_month: u8, #[case] input_year: i32, #[case] exp_start: u8, #[case] exp_days: u8, #[case] exp_month: &str) -> anyhow::Result<()> {
-        let calendar_view = CalendarView::new(None, input_month, input_year)?;
+        let calendar_view = CalendarModel::new(None, input_month, input_year)?;
 
         assert_eq!(calendar_view.start_day, exp_start);
         assert_eq!(calendar_view.n_days, exp_days);
@@ -132,7 +132,7 @@ mod tests {
     #[case::negative_year(2, -1)]
     #[case::both_incorrect(15, -1)]
     fn incorrect_date(#[case] month: u8, #[case] year: i32) {
-        let maybe_calendar = CalendarView::new(None, month, year);
+        let maybe_calendar = CalendarModel::new(None, month, year);
         assert!(maybe_calendar.is_err());
     }
 }
