@@ -1,7 +1,7 @@
 
 use crate::{io, models::CalendarModel, views::CalendarView};
 
-use chrono::{Datelike, Local};
+use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind
 };
@@ -20,6 +20,10 @@ pub struct App {
 
     calendar_model: CalendarModel,
     calendar_view: CalendarView,
+
+    this_day: u8,
+    this_month: u8,
+    this_year: i32,
 }
 
 impl Default for App {
@@ -29,10 +33,14 @@ impl Default for App {
 
         let calendar_model = CalendarModel::from(time_now);
 
+        let this_day = time_now.day() as u8;
+        let this_month = time_now.month() as u8;
+        let this_year = time_now.year();
+
         App{
             exit: false,
-            current_month: time_now.month() as u8,
-            current_year: time_now.year(),
+            current_month: this_month,
+            current_year: this_year,
             calendar_model: calendar_model.clone(),
             calendar_view: CalendarView{
                 month_name: calendar_model.month_name,
@@ -40,7 +48,11 @@ impl Default for App {
                 year: time_now.year(),
                 n_days: calendar_model.n_days as usize,
                 current_day: Some(time_now.day() as u8)
-            }
+            },
+
+            this_day,
+            this_month,
+            this_year
         }
     }
 }
@@ -85,6 +97,18 @@ impl App {
         self.exit = true;
     }
 
+    fn is_today(&self, target_time: NaiveDate) -> bool {
+        let target_day = target_time.day() as u8;
+        let target_month = target_time.month() as u8;
+        let target_year = target_time.year();
+
+        let test = format!("{}-{}-{}", target_day, target_month, target_year);
+
+        target_year == self.this_year
+        && target_month == self.this_month
+        && target_day == self.this_day
+    }
+
     fn next_calendar(&mut self) {
 
         self.current_year += self.current_month as i32 / 12;
@@ -92,6 +116,17 @@ impl App {
 
         // TODO: ideally we would update instead of recreate?
         self.calendar_model = CalendarModel::new(None, self.current_month, self.current_year).unwrap();
+
+        if let Some(maybe_today) = NaiveDate::from_ymd_opt(self.current_year, self.current_month as u32, self.this_day as u32) && self.is_today(maybe_today){
+            self.calendar_view = CalendarView{
+                month_name: self.calendar_model.month_name.clone(),
+                start_day: self.calendar_model.start_day,
+                year: self.current_year,
+                n_days: self.calendar_model.n_days as usize,
+                current_day: Some(self.this_day)
+            };
+            return;
+        }
 
         self.calendar_view = CalendarView{
             month_name: self.calendar_model.month_name.clone(),
@@ -109,6 +144,17 @@ impl App {
 
         // TODO: ideally we would update instead of recreate?
         self.calendar_model = CalendarModel::new(None, self.current_month, self.current_year).unwrap();
+
+        if let Some(maybe_today) = NaiveDate::from_ymd_opt(self.current_year, self.current_month as u32, self.this_day as u32) && self.is_today(maybe_today){
+            self.calendar_view = CalendarView{
+                month_name: self.calendar_model.month_name.clone(),
+                start_day: self.calendar_model.start_day,
+                year: self.current_year,
+                n_days: self.calendar_model.n_days as usize,
+                current_day: Some(self.this_day)
+            };
+            return;
+        }
 
         self.calendar_view = CalendarView{
             month_name: self.calendar_model.month_name.clone(),
