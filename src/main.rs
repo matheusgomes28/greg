@@ -5,6 +5,14 @@ pub mod models;
 pub mod views;
 
 use app::App;
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct ProgramArgs {
+    #[arg(short, long)]
+    ics_dir: Option<String>
+}
 
 fn try_main() -> anyhow::Result<()> {
     let mut terminal = ratatui::init();

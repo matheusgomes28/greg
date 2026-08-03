@@ -30,7 +30,7 @@ impl Widget for &CalendarView {
         let inner_area = block
             .inner(area)
             .centered_horizontally(Constraint::Length(7 * 4))
-            .centered_vertically(Constraint::Length(7 * 1));
+            .centered_vertically(Constraint::Length(7));
 
         let rows = vertical.split(inner_area);
         let cells = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
@@ -39,7 +39,7 @@ impl Widget for &CalendarView {
         let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
 
         self.render_weeks_header(&header_cells, buf);
-        self.render_days(&weeks_cells, buf, self.start_day as i32, self.n_days as usize, self.current_day.map(|d| d as i32));
+        self.render_days(&weeks_cells, buf, self.start_day as i32, self.n_days, self.current_day.map(|d| d as i32));
 
         block.render(area, buf);
     }

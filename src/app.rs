@@ -1,7 +1,7 @@
 
 use crate::{io, models::CalendarModel, views::CalendarView};
 
-use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone};
+use chrono::{Datelike, Local, NaiveDate};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind
 };
@@ -21,9 +21,17 @@ pub struct App {
     calendar_model: CalendarModel,
     calendar_view: CalendarView,
 
+    // Additions for highlighing today
     this_day: u8,
     this_month: u8,
     this_year: i32,
+
+    // TODO: Need to read all of these with the ICS reader
+    // TODO: library. Should read all of the events in all
+    // TODO: ics files and then store them as a calendar model
+    // TODO: where we can request events per month and day
+    // Additions for reading ICS files
+    ics_directory: Option<String>,
 }
 
 impl Default for App {
@@ -52,7 +60,8 @@ impl Default for App {
 
             this_day,
             this_month,
-            this_year
+            this_year,
+            ics_directory: None,
         }
     }
 }
@@ -101,8 +110,6 @@ impl App {
         let target_day = target_time.day() as u8;
         let target_month = target_time.month() as u8;
         let target_year = target_time.year();
-
-        let test = format!("{}-{}-{}", target_day, target_month, target_year);
 
         target_year == self.this_year
         && target_month == self.this_month
@@ -193,6 +200,7 @@ mod tests {
             current_year,
             calendar_model,
             calendar_view,
+            ..Default::default()
         };
 
         app.next_calendar();
@@ -221,6 +229,7 @@ mod tests {
             current_year,
             calendar_model,
             calendar_view,
+            ..Default::default()
         };
 
         app.prev_calendar();
