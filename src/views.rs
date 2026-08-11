@@ -1,4 +1,44 @@
-use ratatui::{buffer::Buffer, layout::{Constraint, Layout, Rect}, style::{Color, Style}, text::{Line, Span, Text}, widgets::{Block, Paragraph, Widget}};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, Paragraph, Widget},
+};
+
+#[derive(Debug, Clone)]
+pub enum DayColor {
+    Red,
+    Green,
+    Blue,
+}
+
+impl Into<Color> for DayColor {
+    fn into(self) -> Color {
+        match self {
+            DayColor::Red => Color::Red,
+            DayColor::Green => Color::Green,
+            DayColor::Blue => Color::Blue,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DayStyle {
+    Colored(DayColor),
+    Bold(DayColor),
+    Normal,
+}
+
+impl Into<Style> for DayStyle {
+    fn into(self) -> Style {
+        match self {
+            DayStyle::Normal => Style::new(),
+            DayStyle::Bold(color) => Style::default().bold().fg(color.into()),
+            DayStyle::Colored(color) => Style::default().fg(color.into()),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct CalendarView {
@@ -6,12 +46,7 @@ pub struct CalendarView {
     pub start_day: u8,
     pub year: i32,
     pub n_days: usize,
-
-    // TODO: we probably want to make this
-    // TODO: a vector or make this struct
-    // TODO: contain abunch of styles per
-    // TODO: day.
-    pub current_day: Option<u8>
+    pub styled_days: Vec<(u8, DayStyle)>,
 }
 
 impl Widget for &CalendarView {
@@ -39,7 +74,12 @@ impl Widget for &CalendarView {
         let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
 
         self.render_weeks_header(&header_cells, buf);
-        self.render_days(&weeks_cells, buf, self.start_day as i32, self.n_days, self.current_day.map(|d| d as i32));
+        self.render_days(
+            &weeks_cells,
+            buf,
+            self.start_day as i32,
+            self.n_days,
+        );
 
         block.render(area, buf);
     }
@@ -47,16 +87,20 @@ impl Widget for &CalendarView {
 
 impl CalendarView {
     pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {
-        let header_style = Style::default()
-            .bold()
-            .fg(Color::Blue);
+        let header_style = Style::default().bold().fg(Color::Blue);
 
         for (day, &cell) in ["S", "M", "T", "W", "T", "F", "S"].into_iter().zip(row) {
             Span::styled(day, header_style).render(cell, buf);
         }
     }
 
-    pub fn render_days(&self, cells: &[Rect], buf: &mut Buffer, start_day: i32, n_days: usize, today: Option<i32>) {
+    pub fn render_days(
+        &self,
+        cells: &[Rect],
+        buf: &mut Buffer,
+        start_day: i32,
+        n_days: usize,
+    ) {
         for (i, &cell) in cells.iter().take(n_days + start_day as usize).enumerate() {
             // Offset the value of each cell by the starting day,
             // and only draw cells that have a value of > 1
@@ -66,15 +110,14 @@ impl CalendarView {
             }
 
             let text = Text::styled(format!("{}", month_day), Style::default().red());
-            Paragraph::new(text)
-                .render(cell, buf);
+            Paragraph::new(text).render(cell, buf);
         }
 
-        if let Some(today) = today {
-            let cell = cells[(start_day + today - 1) as usize];
-            let text = Text::styled(format!("{}", today), Style::default().bold().blue());
-            Paragraph::new(text)
-                .render(cell, buf);
+        // Styled days afterwards
+        for (day, style) in self.styled_days.clone() {
+            let cell = cells[(start_day + day as i32 - 1) as usize];
+            let text = Text::styled(format!("{}", day), style);
+            Paragraph::new(text).render(cell, buf);
         }
     }
 }

@@ -595,7 +595,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossterm",
- "ics",
+ "ical",
  "ratatui",
  "rstest",
 ]
@@ -663,10 +663,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "ics"
-version = "0.5.8"
+name = "ical"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ebec52f461ade2d19e7b594ecbcd0723ba0ab0eefa8aae2281b78ff461a91fa"
+checksum = "9b7cab7543a8b7729a19e2c04309f902861293dcdae6558dfbeb634454d279f6"
+dependencies = [
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "id-arena"
