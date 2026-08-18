@@ -1,11 +1,14 @@
-use crate::{io, models::CalendarModel, views::{CalendarView, DayColor, DayStyle}};
+use std::{fs::File, io::{self, BufReader}};
 
-use chrono::{Datelike, Local, NaiveDate};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use crate::{ics_utils::read_events, models::CalendarModel, views::{CalendarView, DayColor, DayStyle}};
+
+use anyhow::Context;
+use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
+use crossterm::{event::{self, Event, KeyCode, KeyEvent, KeyEventKind}};
 
 use ratatui::{DefaultTerminal, Frame};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct App {
     exit: bool,
 
@@ -25,10 +28,11 @@ pub struct App {
     // TODO: ics files and then store them as a calendar model
     // TODO: where we can request events per month and day
     // Additions for reading ICS files
-    ics_directory: Option<String>,
+    pub ics_directory: Option<String>,
 }
 
 const TODAY_STYLE: DayStyle = DayStyle::Colored(DayColor::Blue);
+const EVENT_STYLE: DayStyle = DayStyle::Colored(DayColor::Green);
 
 impl Default for App {
     fn default() -> Self {
@@ -62,6 +66,18 @@ impl Default for App {
 }
 
 impl App {
+
+    // TODO: I don't like this, but it looks rustonic...
+    pub fn with_ics_dir(&self, ics_directory: Option<String>) -> anyhow::Result<Self> {
+        let mut ret = self.clone();
+        ret.ics_directory = ics_directory.clone();
+
+        let new_styles = get_styles(&ics_directory, self.this_month, self.this_year, self.calendar_model.n_days)?;
+        ret.calendar_view.styled_days = [new_styles, self.calendar_view.styled_days.clone()].concat();
+
+        Ok(ret)
+    }
+
     /// runs the application's main loop until the user quits
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         while !self.exit {
@@ -119,20 +135,16 @@ impl App {
         self.calendar_model =
             CalendarModel::new(None, self.current_month, self.current_year).unwrap();
 
+        let mut styled_days = get_styles(&self.ics_directory, self.current_month, self.current_year, self.calendar_model.n_days)
+            .unwrap_or(vec![]);
+
         if let Some(maybe_today) = NaiveDate::from_ymd_opt(
             self.current_year,
             self.current_month as u32,
             self.this_day as u32,
         ) && self.is_today(maybe_today)
         {
-            self.calendar_view = CalendarView {
-                month_name: self.calendar_model.month_name.clone(),
-                start_day: self.calendar_model.start_day,
-                year: self.current_year,
-                n_days: self.calendar_model.n_days as usize,
-                styled_days: vec![(self.this_day, TODAY_STYLE)],
-            };
-            return;
+            styled_days.push((self.this_day, TODAY_STYLE));
         }
 
         self.calendar_view = CalendarView {
@@ -140,7 +152,7 @@ impl App {
             start_day: self.calendar_model.start_day,
             year: self.current_year,
             n_days: self.calendar_model.n_days as usize,
-            styled_days: Default::default(),
+            styled_days,
         };
     }
 
@@ -157,20 +169,17 @@ impl App {
         self.calendar_model =
             CalendarModel::new(None, self.current_month, self.current_year).unwrap();
 
+
+        let mut styled_days = get_styles(&self.ics_directory, self.current_month, self.current_year, self.calendar_model.n_days)
+            .unwrap_or(vec![]);
+
         if let Some(maybe_today) = NaiveDate::from_ymd_opt(
             self.current_year,
             self.current_month as u32,
             self.this_day as u32,
         ) && self.is_today(maybe_today)
         {
-            self.calendar_view = CalendarView {
-                month_name: self.calendar_model.month_name.clone(),
-                start_day: self.calendar_model.start_day,
-                year: self.current_year,
-                n_days: self.calendar_model.n_days as usize,
-                styled_days: vec![(self.this_day, TODAY_STYLE)],
-            };
-            return;
+            styled_days.push((self.this_day, TODAY_STYLE));
         }
 
         self.calendar_view = CalendarView {
@@ -178,9 +187,44 @@ impl App {
             start_day: self.calendar_model.start_day,
             year: self.current_year,
             n_days: self.calendar_model.n_days as usize,
-            styled_days: Default::default(),
+            styled_days,
         };
     }
+}
+
+
+// TODO: This should probably be per calendar config
+fn get_styles(ics_directory: &Option<String>, month: u8, year: i32, n_days: u8) -> anyhow::Result<Vec<(u8, DayStyle)>> {
+    let file_path = ics_directory
+        .clone()
+        .context("file path was not given")?;
+
+    let file = File::open(file_path)?;
+    let file_buf = BufReader::new(file);
+
+    // TODO: We want to save this inside the App as
+    // TODO: the state of the events, not read these files
+    // TODO: whenever
+    let events = read_events(file_buf, &Local)?;
+
+    let low = Local
+        .with_ymd_and_hms(year, month as u32, 1, 0, 0, 0)
+        .single()
+        .context("error creating the range value")?;
+    let high = low + Duration::days(n_days as i64);
+
+    let this_months_events = events.by_range(low, high);
+
+    if let Some(this_months_events) = this_months_events {
+        let mut res = Vec::<(u8, DayStyle)>::new();
+        for event in this_months_events {
+            let day = event.start.day() as u8;
+            res.push((day, EVENT_STYLE));
+        }
+        return Ok(res);
+    }
+
+    Ok(vec![])
 }
 
 #[cfg(test)]

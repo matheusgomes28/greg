@@ -40,7 +40,7 @@ impl Into<Style> for DayStyle {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CalendarView {
     pub month_name: String,
     pub start_day: u8,
