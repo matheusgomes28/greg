@@ -1,7 +1,5 @@
 use anyhow::Context;
-use chrono::{
-    DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Utc, Weekday,
-};
+use chrono::{DateTime, Datelike, Duration, Local, Month, NaiveDate, TimeZone, Utc, Weekday};
 use std::{collections::BTreeMap, convert::From};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,7 +26,7 @@ where
     // TODO: This should probably return an error if invalid range
     pub fn by_range(&self, low: DateTime<T>, high: DateTime<T>) -> Option<Vec<Event<T>>> {
         if low > high {
-            return None
+            return None;
         }
 
         let events = self
@@ -73,9 +71,12 @@ impl EventStore<Utc> {
     // UTC time only
     // TODO: This should probably return an error if invalid range
     pub fn by_day(&self, day: u8, month: u8, year: i32) -> Option<Vec<Event<Utc>>> {
-        if let Some(low) =  Utc.with_ymd_and_hms(year, month as u32, day as u32, 0, 0, 0).single() {
+        if let Some(low) = Utc
+            .with_ymd_and_hms(year, month as u32, day as u32, 0, 0, 0)
+            .single()
+        {
             let high = low + Duration::days(1);
-            return self.by_range(low, high)
+            return self.by_range(low, high);
         }
 
         None
@@ -232,7 +233,6 @@ mod tests {
     #[case::reverse_range(Utc.with_ymd_and_hms(2026, 7, 30, 0, 0, 0).unwrap(), Utc.with_ymd_and_hms(2026, 7, 10, 0, 0, 0).unwrap())]
     #[case::equal_range(Utc.with_ymd_and_hms(2026, 7, 20, 0, 0, 0).unwrap(), Utc.with_ymd_and_hms(2026, 7, 20, 0, 0, 0).unwrap())]
     fn invalid_ranges(#[case] low: DateTime<Utc>, #[case] high: DateTime<Utc>) {
-
         let event_dt = Utc.with_ymd_and_hms(2026, 7, 20, 0, 0, 0).unwrap();
         let store = EventStore::<Utc> {
             store: BTreeMap::from([(

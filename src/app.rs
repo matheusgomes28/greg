@@ -1,10 +1,17 @@
-use std::{fs::File, io::{self, BufReader}};
+use std::{
+    fs::File,
+    io::{self, BufReader},
+};
 
-use crate::{ics_utils::read_events, models::CalendarModel, views::{CalendarView, DayColor, DayStyle}};
+use crate::{
+    ics_utils::read_events,
+    models::CalendarModel,
+    views::{CalendarView, DayColor, DayStyle},
+};
 
 use anyhow::Context;
 use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
-use crossterm::{event::{self, Event, KeyCode, KeyEvent, KeyEventKind}};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 
 use ratatui::{DefaultTerminal, Frame};
 
@@ -66,14 +73,19 @@ impl Default for App {
 }
 
 impl App {
-
     // TODO: I don't like this, but it looks rustonic...
     pub fn with_ics_dir(&self, ics_directory: Option<String>) -> anyhow::Result<Self> {
         let mut ret = self.clone();
         ret.ics_directory = ics_directory.clone();
 
-        let new_styles = get_styles(&ics_directory, self.this_month, self.this_year, self.calendar_model.n_days)?;
-        ret.calendar_view.styled_days = [new_styles, self.calendar_view.styled_days.clone()].concat();
+        let new_styles = get_styles(
+            &ics_directory,
+            self.this_month,
+            self.this_year,
+            self.calendar_model.n_days,
+        )?;
+        ret.calendar_view.styled_days =
+            [new_styles, self.calendar_view.styled_days.clone()].concat();
 
         Ok(ret)
     }
@@ -135,8 +147,13 @@ impl App {
         self.calendar_model =
             CalendarModel::new(None, self.current_month, self.current_year).unwrap();
 
-        let mut styled_days = get_styles(&self.ics_directory, self.current_month, self.current_year, self.calendar_model.n_days)
-            .unwrap_or(vec![]);
+        let mut styled_days = get_styles(
+            &self.ics_directory,
+            self.current_month,
+            self.current_year,
+            self.calendar_model.n_days,
+        )
+        .unwrap_or(vec![]);
 
         if let Some(maybe_today) = NaiveDate::from_ymd_opt(
             self.current_year,
@@ -169,9 +186,13 @@ impl App {
         self.calendar_model =
             CalendarModel::new(None, self.current_month, self.current_year).unwrap();
 
-
-        let mut styled_days = get_styles(&self.ics_directory, self.current_month, self.current_year, self.calendar_model.n_days)
-            .unwrap_or(vec![]);
+        let mut styled_days = get_styles(
+            &self.ics_directory,
+            self.current_month,
+            self.current_year,
+            self.calendar_model.n_days,
+        )
+        .unwrap_or(vec![]);
 
         if let Some(maybe_today) = NaiveDate::from_ymd_opt(
             self.current_year,
@@ -192,12 +213,14 @@ impl App {
     }
 }
 
-
 // TODO: This should probably be per calendar config
-fn get_styles(ics_directory: &Option<String>, month: u8, year: i32, n_days: u8) -> anyhow::Result<Vec<(u8, DayStyle)>> {
-    let file_path = ics_directory
-        .clone()
-        .context("file path was not given")?;
+fn get_styles(
+    ics_directory: &Option<String>,
+    month: u8,
+    year: i32,
+    n_days: u8,
+) -> anyhow::Result<Vec<(u8, DayStyle)>> {
+    let file_path = ics_directory.clone().context("file path was not given")?;
 
     let file = File::open(file_path)?;
     let file_buf = BufReader::new(file);
