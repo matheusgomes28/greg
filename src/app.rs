@@ -16,6 +16,12 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{DefaultTerminal, Frame};
 
 #[derive(Debug, Clone)]
+enum AppMode {
+    View,
+    Select,
+}
+
+#[derive(Debug, Clone)]
 pub struct App {
     exit: bool,
 
@@ -29,6 +35,7 @@ pub struct App {
     this_day: u8,
     this_month: u8,
     this_year: i32,
+    mode: AppMode,
 
     // TODO: Need to read all of these with the ICS reader
     // TODO: library. Should read all of the events in all
@@ -57,16 +64,19 @@ impl Default for App {
             current_year: this_year,
             calendar_model: calendar_model.clone(),
             calendar_view: CalendarView {
+                title: String::from("View"),
                 month_name: calendar_model.month_name,
                 start_day: calendar_model.start_day,
                 year: time_now.year(),
                 n_days: calendar_model.n_days as usize,
                 styled_days: vec![(time_now.day() as u8, TODAY_STYLE)],
+                event: None,
             },
 
             this_day,
             this_month,
             this_year,
+            mode: AppMode::View,
             ics_directory: None,
         }
     }
@@ -109,18 +119,34 @@ impl App {
             // it's important to check that the event is a key press event as
             // crossterm also emits key release and repeat events on Windows.}
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)
+                match self.mode {
+                    AppMode::View => self.handle_key_event_view(key_event),
+                    AppMode::Select => self.handle_key_event_select(key_event),
+                }
             }
             _ => {}
         };
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key_event: KeyEvent) {
+    fn handle_key_event_view(&mut self, key_event: KeyEvent) {
+        self.calendar_view.title = String::from("View");
         match key_event.code {
             KeyCode::Right | KeyCode::Char('j') => self.next_calendar(),
             KeyCode::Left | KeyCode::Char('k') => self.prev_calendar(),
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
+            KeyCode::Enter => { self.mode = AppMode::Select },
+            _ => {}
+        }
+    }
+
+    fn handle_key_event_select(&mut self, key_event: KeyEvent) {
+        self.calendar_view.title = String::from("Select");
+        match key_event.code {
+            KeyCode::Right | KeyCode::Char('j') => self.next_calendar(),
+            KeyCode::Left | KeyCode::Char('k') => self.prev_calendar(),
+            KeyCode::Char('q') | KeyCode::Esc => self.exit(),
+            KeyCode::Enter => { self.mode = AppMode::View },
             _ => {}
         }
     }
@@ -165,11 +191,13 @@ impl App {
         }
 
         self.calendar_view = CalendarView {
+            title: String::from("View"),
             month_name: self.calendar_model.month_name.clone(),
             start_day: self.calendar_model.start_day,
             year: self.current_year,
             n_days: self.calendar_model.n_days as usize,
             styled_days,
+            event: None,
         };
     }
 
@@ -204,11 +232,13 @@ impl App {
         }
 
         self.calendar_view = CalendarView {
+            title: String::from("View"),
             month_name: self.calendar_model.month_name.clone(),
             start_day: self.calendar_model.start_day,
             year: self.current_year,
             n_days: self.calendar_model.n_days as usize,
             styled_days,
+            event: None,
         };
     }
 }
@@ -268,11 +298,13 @@ mod tests {
     ) -> anyhow::Result<()> {
         let calendar_model = CalendarModel::new(None, current_month, current_year)?;
         let calendar_view = CalendarView {
+            title: String::from("View"),
             month_name: calendar_model.month_name.clone(),
             start_day: calendar_model.start_day,
             year: current_year,
             n_days: calendar_model.n_days as usize,
             styled_days: Default::default(),
+            event: None,
         };
 
         let mut app = App {
@@ -304,11 +336,13 @@ mod tests {
     ) -> anyhow::Result<()> {
         let calendar_model = CalendarModel::new(None, current_month, current_year)?;
         let calendar_view = CalendarView {
+            title: String::from("View"),
             month_name: calendar_model.month_name.clone(),
             start_day: calendar_model.start_day,
             year: current_year,
             n_days: calendar_model.n_days as usize,
             styled_days: Default::default(),
+            event: None,
         };
         let mut app = App {
             exit,

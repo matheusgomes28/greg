@@ -1,13 +1,12 @@
+use chrono::{DateTime, Local};
 use ratatui::{
-    buffer::Buffer,
-    layout::{Constraint, HorizontalAlignment, Layout, Rect},
-    style::{Color, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Paragraph, Widget, Wrap},
+    buffer::Buffer, layout::{Constraint, Layout, Rect}, style::{Color, Style, Stylize}, text::{Line, Span, Text}, widgets::{Block, Paragraph, Widget, Wrap},
 };
 
+use crate::models::Event;
+
 const MIN_CALENDAR_WIDTH: u16 = 32;
-const MIN_CALENDAR_HEIGHT: u16 = 12;
+const MIN_CALENDAR_HEIGHT: u16 = 13;
 
 #[derive(Debug, Clone)]
 pub enum DayColor {
@@ -45,63 +44,107 @@ impl Into<Style> for DayStyle {
 
 #[derive(Debug, Clone)]
 pub struct CalendarView {
+    pub title: String,
     pub month_name: String,
     pub start_day: u8,
     pub year: i32,
     pub n_days: usize,
     pub styled_days: Vec<(u8, DayStyle)>,
+    pub event: Option<Event<Local>>
 }
 
 impl Widget for &CalendarView {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // TODO: This should definitely be a function to draw size warning
         if (area.width < MIN_CALENDAR_WIDTH) || (area.height < MIN_CALENDAR_HEIGHT) {
-            let warning_text = format!("need min {}x{}", MIN_CALENDAR_WIDTH, MIN_CALENDAR_HEIGHT);
-            let block = Block::bordered();
-            let inner_area = block.inner(area).centered(
-                Constraint::Length(warning_text.len() as u16),
-                Constraint::Length(1),
-            );
-
-            let text = Text::from(warning_text);
-            Paragraph::new(text)
-                .wrap(Wrap { trim: true })
-                .render(inner_area, buf);
+            self.render_size_warning(area, buf);
             return;
         }
 
-        let title_text = format!("{} {}", self.year, self.month_name);
+        let title_text = format!("{} {} - {}", self.year, self.month_name, self.title);
         let block = Block::bordered()
             .title_alignment(ratatui::layout::HorizontalAlignment::Center)
             .title(Line::from(title_text));
 
-        let col_constraints = (0..7).map(|_| Constraint::Length(4));
-        let row_constraits = (0..6).map(|_| Constraint::Length(1));
-
-        let horizontal = Layout::horizontal(col_constraints).spacing(0);
-        let vertical = Layout::vertical(row_constraits).spacing(0);
+        // Constraints set the physical width and height for the
+        // inner element
+        // Note: the lengths here should be the total length of items
+        // Note: inside.
+        let horizontal_size = 7*4;
+        let vertical_size: u16 = self.event
+            .clone()
+            .map_or(7, |_x| 10);
 
         let inner_area = block
             .inner(area)
-            .centered_horizontally(Constraint::Length(7 * 4))
-            .centered_vertically(Constraint::Length(6));
+            .centered_horizontally(Constraint::Length(horizontal_size))
+            .centered_vertically(Constraint::Length(vertical_size));
 
-        let rows = vertical.split(inner_area);
-        let cells = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
+        if self.event.is_some() {
+            // Constraitns(bot, mid, top)  = calendar, pad, event
+            let vertical = Layout::vertical([Constraint::Length(6), Constraint::Length(1), Constraint::Length(2)]);
+            let [top_area, _mid_area, bot_area] = inner_area.layout(&vertical);
 
-        let header_cells = cells.clone().take(7).collect::<Vec<_>>();
-        let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
+            // TODO: Make the top area for the rectangle if there's space
 
-        self.render_weeks_header(&header_cells, buf);
-        self.render_days(&weeks_cells, buf, self.start_day as i32, self.n_days);
+            // TODO: Make the bottom box for the events name if there's space
+            self.render_calendar(top_area, buf);
+            self.render_event_details(bot_area, buf);
+            return;
+        }
 
-        // TODO: Use the same logic as the size warning to draw the event details here
-
+        // TODO: Make the bottom box for the events name if there's space
+        self.render_calendar(inner_area, buf);
         block.render(area, buf);
     }
 }
 
 impl CalendarView {
+
+    pub fn render_size_warning(&self, area: Rect, buf: &mut Buffer) {
+        let warning_text = format!("need min {}x{}", MIN_CALENDAR_WIDTH, MIN_CALENDAR_HEIGHT);
+        let block = Block::bordered();
+        let inner_area = block.inner(area).centered(
+            Constraint::Length(warning_text.len() as u16),
+            Constraint::Length(1),
+        );
+
+        let text = Text::from(warning_text);
+        Paragraph::new(text)
+            .wrap(Wrap { trim: true })
+            .render(inner_area, buf);
+    }
+
+    pub fn render_calendar(&self, area: Rect, buf: &mut Buffer) {
+        let col_constraints = (0..7).map(|_| Constraint::Length(4));
+        let row_constraits = (0..6).map(|_| Constraint::Length(1));
+        let horizontal = Layout::horizontal(col_constraints).spacing(0);
+        let vertical = Layout::vertical(row_constraits).spacing(0);
+
+        let rows = vertical.split(area);
+        let cells = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
+        let header_cells = cells.clone().take(7).collect::<Vec<_>>();
+        let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
+        self.render_weeks_header(&header_cells, buf);
+        self.render_days(&weeks_cells, buf, self.start_day as i32, self.n_days);
+    }
+
+    pub fn render_event_details(&self, area: Rect, buf: &mut Buffer) {
+        let vertical = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]);
+        let [title_area, desc_area] = area.layout(&vertical);
+
+        let event_date = "29/07/1996";
+        let event_name = " Happy Birthday!";
+        let title = Line::from_iter([
+            Span::from(event_date).blue().bold(),
+            Span::from(event_name).blue(),
+        ]);
+        title.render(title_area, buf);
+
+        let event_desc = "The very day that I was born";
+        let desc = Line::from(Span::from(event_desc).green());
+        desc.render(desc_area, buf);
+    }
+
     pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {
         let header_style = Style::default().bold().fg(Color::Blue);
 
