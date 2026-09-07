@@ -116,7 +116,7 @@ impl CalendarView {
 
     pub fn render_calendar(&self, area: Rect, buf: &mut Buffer) {
         let col_constraints = (0..7).map(|_| Constraint::Length(4));
-        let row_constraits = (0..6).map(|_| Constraint::Length(1));
+        let row_constraits = (0..7).map(|_| Constraint::Length(1));
         let horizontal = Layout::horizontal(col_constraints).spacing(0);
         let vertical = Layout::vertical(row_constraits).spacing(0);
 

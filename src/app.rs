@@ -1,6 +1,5 @@
 use std::{
-    fs::File,
-    io::{self, BufReader},
+    fmt::Display, fs::File, io::{self, BufReader}
 };
 
 use crate::{
@@ -19,6 +18,15 @@ use ratatui::{DefaultTerminal, Frame};
 enum AppMode {
     View,
     Select,
+}
+
+impl From<&AppMode> for String {
+    fn from(value: &AppMode) -> Self {
+        match value {
+            AppMode::View => "View".into(),
+            AppMode::Select => "Select".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +65,7 @@ impl Default for App {
         let this_day = time_now.day() as u8;
         let this_month = time_now.month() as u8;
         let this_year = time_now.year();
+        let mode = AppMode::View;
 
         App {
             exit: false,
@@ -64,7 +73,7 @@ impl Default for App {
             current_year: this_year,
             calendar_model: calendar_model.clone(),
             calendar_view: CalendarView {
-                title: String::from("View"),
+                title: String::from(&mode),
                 month_name: calendar_model.month_name,
                 start_day: calendar_model.start_day,
                 year: time_now.year(),
@@ -76,7 +85,7 @@ impl Default for App {
             this_day,
             this_month,
             this_year,
-            mode: AppMode::View,
+            mode,
             ics_directory: None,
         }
     }
@@ -130,25 +139,25 @@ impl App {
     }
 
     fn handle_key_event_view(&mut self, key_event: KeyEvent) {
-        self.calendar_view.title = String::from("View");
         match key_event.code {
             KeyCode::Right | KeyCode::Char('j') => self.next_calendar(),
             KeyCode::Left | KeyCode::Char('k') => self.prev_calendar(),
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
-            KeyCode::Enter => { self.mode = AppMode::Select },
+            KeyCode::Enter => self.mode = AppMode::Select,
             _ => {}
         }
+        self.calendar_view.title = String::from(&self.mode);
     }
 
     fn handle_key_event_select(&mut self, key_event: KeyEvent) {
-        self.calendar_view.title = String::from("Select");
         match key_event.code {
             KeyCode::Right | KeyCode::Char('j') => self.next_calendar(),
             KeyCode::Left | KeyCode::Char('k') => self.prev_calendar(),
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
-            KeyCode::Enter => { self.mode = AppMode::View },
+            KeyCode::Enter => self.mode = AppMode::View,
             _ => {}
         }
+        self.calendar_view.title = String::from(&self.mode);
     }
 
     fn exit(&mut self) {
@@ -191,7 +200,7 @@ impl App {
         }
 
         self.calendar_view = CalendarView {
-            title: String::from("View"),
+            title: self.calendar_view.title.clone(),
             month_name: self.calendar_model.month_name.clone(),
             start_day: self.calendar_model.start_day,
             year: self.current_year,
@@ -232,7 +241,7 @@ impl App {
         }
 
         self.calendar_view = CalendarView {
-            title: String::from("View"),
+            title: self.calendar_view.title.clone(),
             month_name: self.calendar_model.month_name.clone(),
             start_day: self.calendar_model.start_day,
             year: self.current_year,
