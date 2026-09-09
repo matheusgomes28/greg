@@ -10,6 +10,7 @@ pub struct Event<T: TimeZone> {
     pub end: DateTime<T>,
 }
 
+#[derive(Debug, Clone)]
 pub struct EventStore<T: TimeZone> {
     // TODO: What's the best way to store the
     // TODO: events given the public interface

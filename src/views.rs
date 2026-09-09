@@ -29,6 +29,7 @@ impl Into<Color> for DayColor {
 pub enum DayStyle {
     Colored(DayColor),
     Bold(DayColor),
+    Highlighted(DayColor),
     Normal,
 }
 
@@ -37,6 +38,7 @@ impl Into<Style> for DayStyle {
         match self {
             DayStyle::Normal => Style::new(),
             DayStyle::Bold(color) => Style::default().bold().fg(color.into()),
+            DayStyle::Highlighted(color) => Style::default().bg(color.into()),
             DayStyle::Colored(color) => Style::default().fg(color.into()),
         }
     }
@@ -70,9 +72,14 @@ impl Widget for &CalendarView {
         // Note: the lengths here should be the total length of items
         // Note: inside.
         let horizontal_size = 7*4;
-        let vertical_size: u16 = self.event
-            .clone()
-            .map_or(7, |_x| 10);
+
+
+        // TODO: Figure out whether a fixes size is better for
+        // TODO: when we have events showing up
+        // let vertical_size: u16 = self.event
+        //     .clone()
+        //     .map_or(7, |_x| 10);
+        let vertical_size: u16 = 10;
 
         let inner_area = block
             .inner(area)
@@ -81,7 +88,7 @@ impl Widget for &CalendarView {
 
         if self.event.is_some() {
             // Constraitns(bot, mid, top)  = calendar, pad, event
-            let vertical = Layout::vertical([Constraint::Length(6), Constraint::Length(1), Constraint::Length(2)]);
+            let vertical = Layout::vertical([Constraint::Length(7), Constraint::Length(1), Constraint::Length(2)]);
             let [top_area, _mid_area, bot_area] = inner_area.layout(&vertical);
 
             // TODO: Make the top area for the rectangle if there's space
@@ -89,6 +96,7 @@ impl Widget for &CalendarView {
             // TODO: Make the bottom box for the events name if there's space
             self.render_calendar(top_area, buf);
             self.render_event_details(bot_area, buf);
+            block.render(area, buf);
             return;
         }
 
@@ -132,16 +140,15 @@ impl CalendarView {
         let vertical = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]);
         let [title_area, desc_area] = area.layout(&vertical);
 
-        let event_date = "29/07/1996";
-        let event_name = " Happy Birthday!";
+        let event = self.event.as_ref().unwrap();
+        let event_dt = format!("{}", event.start.format("%H:%M:%S"));
         let title = Line::from_iter([
-            Span::from(event_date).blue().bold(),
-            Span::from(event_name).blue(),
+            Span::from(&event.title).blue().bold(),
+            Span::from(event_dt).blue(),
         ]);
         title.render(title_area, buf);
 
-        let event_desc = "The very day that I was born";
-        let desc = Line::from(Span::from(event_desc).green());
+        let desc = Line::from(Span::from(&event.desc).green());
         desc.render(desc_area, buf);
     }
 
