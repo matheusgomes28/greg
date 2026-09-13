@@ -244,10 +244,9 @@ impl App {
     }
 
     // Calendar Select functions
-    fn selection_down(&mut self) {
-        let day_offset = 7;
-        let next_selection = self.selected_day + day_offset;
-        self.selected_day = std::cmp::min(next_selection, self.calendar_model.n_days);
+    fn selection_move<F: Fn(i16) -> i16>(&mut self, day_offset: i16, comp: F) {
+        let next_selection = self.selected_day as i16 + day_offset;
+        self.selected_day = comp(next_selection) as u8;
 
         // TODO: Copied everywhere
         let mut styled_days = get_styles(
@@ -276,115 +275,28 @@ impl App {
             styled_days,
             event,
         };
+    }
+
+    fn selection_down(&mut self) {
+        let thresh = self.calendar_model.n_days as i16;
+        self.selection_move(7, |d| std::cmp::min(d, thresh));
     }
 
     fn selection_right(&mut self) {
-        let day_offset = 1;
-        let next_selection = self.selected_day + day_offset;
-        self.selected_day = std::cmp::min(next_selection, self.calendar_model.n_days);
-
-        // TODO: Copied everywhere
-        let mut styled_days = get_styles(
-            &self.ics_directory,
-            self.current_month,
-            self.current_year,
-            self.calendar_model.n_days,
-        )
-        .unwrap_or(vec![]);
-
-        styled_days.push((self.selected_day, SELECTED_STYLE));
-
-        // TODO: This only supports one event!!!
-        let low = Local.with_ymd_and_hms(self.current_year, self.current_month as u32, self.selected_day as u32, 0, 0, 0).unwrap();
-        let high = low + Duration::days(1);
-        let event = self.events
-            .by_range(low, high)
-            .and_then(|f| f.first().cloned());
-
-        self.calendar_view = CalendarView {
-            title: self.calendar_view.title.clone(),
-            month_name: self.calendar_model.month_name.clone(),
-            start_day: self.calendar_model.start_day,
-            year: self.current_year,
-            n_days: self.calendar_model.n_days as usize,
-            styled_days,
-            event,
-        };
+        let thresh = self.calendar_model.n_days as i16;
+        self.selection_move(1, |d| std::cmp::min(d, thresh));
     }
 
     fn selection_up(&mut self) {
-        let day_offset: i16 = -7;
-        let next_selection = self.selected_day as i16 + day_offset;
-        self.selected_day = std::cmp::max(next_selection, 1) as u8;
-
-        // TODO: Copied everywhere
-        let mut styled_days = get_styles(
-            &self.ics_directory,
-            self.current_month,
-            self.current_year,
-            self.calendar_model.n_days,
-        )
-        .unwrap_or(vec![]);
-
-        styled_days.push((self.selected_day, SELECTED_STYLE));
-
-        // TODO: This only supports one event!!!
-        let low = Local.with_ymd_and_hms(self.current_year, self.current_month as u32, self.selected_day as u32, 0, 0, 0).unwrap();
-        let high = low + Duration::days(1);
-        let event = self.events
-            .by_range(low, high)
-            .and_then(|f| f.first().cloned());
-
-        self.calendar_view = CalendarView {
-            title: self.calendar_view.title.clone(),
-            month_name: self.calendar_model.month_name.clone(),
-            start_day: self.calendar_model.start_day,
-            year: self.current_year,
-            n_days: self.calendar_model.n_days as usize,
-            styled_days,
-            event,
-        };
+        self.selection_move(-7, |d| std::cmp::max(d, 1));
     }
 
     fn selection_left(&mut self) {
-        let day_offset: i16 = -1;
-        let next_selection = self.selected_day as i16 + day_offset;
-        self.selected_day = std::cmp::max(next_selection, 1) as u8;
-
-        // TODO: Copied everywhere
-        let mut styled_days = get_styles(
-            &self.ics_directory,
-            self.current_month,
-            self.current_year,
-            self.calendar_model.n_days,
-        )
-        .unwrap_or(vec![]);
-
-        styled_days.push((self.selected_day, SELECTED_STYLE));
-
-        // TODO: This only supports one event!!!
-        let low = Local.with_ymd_and_hms(self.current_year, self.current_month as u32, self.selected_day as u32, 0, 0, 0).unwrap();
-        let high = low + Duration::days(1);
-        let event = self.events
-            .by_range(low, high)
-            .and_then(|f| f.first().cloned());
-
-        self.calendar_view = CalendarView {
-            title: self.calendar_view.title.clone(),
-            month_name: self.calendar_model.month_name.clone(),
-            start_day: self.calendar_model.start_day,
-            year: self.current_year,
-            n_days: self.calendar_model.n_days as usize,
-            styled_days,
-            event,
-        };
+        self.selection_move(-1, |d| std::cmp::max(d, 1));
     }
 
     // Calendar View functions
-    fn next_calendar(&mut self) {
-        self.current_year += self.current_month as i32 / 12;
-        self.current_month = self.current_month.rem_euclid(12) + 1;
-
+    fn view_move(&mut self) {
         self.calendar_model =
             CalendarModel::new(None, self.current_month, self.current_year).unwrap();
 
@@ -416,8 +328,14 @@ impl App {
         };
     }
 
+    fn next_calendar(&mut self) {
+        self.current_year += self.current_month as i32 / 12;
+        self.current_month = self.current_month.rem_euclid(12) + 1;
+        self.view_move();
+    }
+
     fn prev_calendar(&mut self) {
-        self.current_year -= (12 - (self.current_month as i32 - 1).rem_euclid(12)) / 12;
+        self.current_year += ((self.current_month as i32 - 1).rem_euclid(12) - 12) / 12;
         self.current_month = if self.current_month == 1 {
             12
         } else {
