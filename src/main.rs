@@ -1,7 +1,7 @@
 pub mod app;
+pub mod ics_utils;
 pub mod models;
 pub mod views;
-pub mod ics_utils;
 
 use app::App;
 use clap::Parser;
@@ -17,11 +17,9 @@ fn try_main() -> anyhow::Result<()> {
     let mut terminal = ratatui::init();
     let args = ProgramArgs::parse();
     if let Some(ics_dir) = args.ics_dir {
-        let mut app = App::default()
-            .with_ics_dir(Some(ics_dir))?;
+        let mut app = App::default().with_ics_dir(Some(ics_dir))?;
 
-        return app.run(&mut terminal)
-            .map_err(anyhow::Error::from);
+        return app.run(&mut terminal).map_err(anyhow::Error::from);
     }
 
     App::default()

@@ -1,19 +1,17 @@
 use crate::models::{Event, EventStore};
 
-use std::io::BufRead;
 use anyhow::Context;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use ical::IcalParser;
-
+use std::io::BufRead;
 
 pub fn read_events<R: BufRead, T: TimeZone>(source: R, tz: &T) -> anyhow::Result<EventStore<T>> {
     let mut store = EventStore::<T>::default();
 
-    let reader= IcalParser::new(source);
+    let reader = IcalParser::new(source);
     for entry in reader {
         let calendar = entry?;
         for event in calendar.events {
-
             let mut start: Option<DateTime<T>> = None;
             let mut summary = String::from("");
 
@@ -21,9 +19,8 @@ pub fn read_events<R: BufRead, T: TimeZone>(source: R, tz: &T) -> anyhow::Result
                 match prop.name.as_str() {
                     "DTSTART" => start = Some(parse_start(prop.value.as_deref(), tz)?),
                     "SUMMARY" => summary = prop.value.clone().unwrap_or(String::from("")),
-                    _ => {},
+                    _ => {}
                 }
-
             }
 
             if start.is_none() {
@@ -31,12 +28,15 @@ pub fn read_events<R: BufRead, T: TimeZone>(source: R, tz: &T) -> anyhow::Result
             }
 
             let start = start.unwrap();
-            store.add(start.clone(), Event::<T>{
-                title: summary.clone(),
-                desc: summary,
-                start: start.clone(),
-                end: start,
-            });
+            store.add(
+                start.clone(),
+                Event::<T> {
+                    title: summary.clone(),
+                    desc: summary,
+                    start: start.clone(),
+                    end: start,
+                },
+            );
         }
     }
 
@@ -48,10 +48,10 @@ fn parse_start<T: TimeZone>(dt_str: Option<&str>, tz: &T) -> anyhow::Result<Date
         anyhow::bail!("invalid date str");
     }
 
-    let  dt_str= dt_str.unwrap();
+    let dt_str = dt_str.unwrap();
 
     if let Some(utc_str) = dt_str.strip_suffix('Z') {
-        let utc_datetime= NaiveDateTime::parse_from_str(utc_str, "%Y%m%dT%H%M%S")?;
+        let utc_datetime = NaiveDateTime::parse_from_str(utc_str, "%Y%m%dT%H%M%S")?;
         return Ok(Utc.from_utc_datetime(&utc_datetime).with_timezone(tz));
     }
 
@@ -60,21 +60,23 @@ fn parse_start<T: TimeZone>(dt_str: Option<&str>, tz: &T) -> anyhow::Result<Date
         return Ok(Utc.from_utc_datetime(&naive_datetime).with_timezone(tz));
     }
 
-    let naive_datetime= NaiveDate::parse_from_str(dt_str, "%Y%m%d")?
+    let naive_datetime = NaiveDate::parse_from_str(dt_str, "%Y%m%d")?
         .and_hms_opt(0, 0, 0)
         .context("could not create the midnight datetime")?;
 
-    tz.from_local_datetime(&naive_datetime).single().context("ambiguous or invalid datatime")
+    tz.from_local_datetime(&naive_datetime)
+        .single()
+        .context("ambiguous or invalid datatime")
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
 
-use super::*;
+    use super::*;
     use anyhow::Context;
-use chrono::{Datelike, Duration, Local};
-use rstest::rstest;
+    use chrono::{Datelike, Duration, Local};
+    use rstest::rstest;
 
     const TEST_DATA: &str = r#"BEGIN:VCALENDAR
 VERSION:2.0

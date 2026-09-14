@@ -1,12 +1,33 @@
-use std::{fs::File, io::{self, BufReader}};
+use std::{
+    fs::File, io::{self, BufReader}
+};
 
-use crate::{ics_utils::read_events, models::CalendarModel, views::{CalendarView, DayColor, DayStyle}};
+use crate::{
+    ics_utils::read_events,
+    models::{CalendarModel, EventStore},
+    views::{CalendarView, DayColor, DayStyle},
+};
 
 use anyhow::Context;
 use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
-use crossterm::{event::{self, Event, KeyCode, KeyEvent, KeyEventKind}};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 
 use ratatui::{DefaultTerminal, Frame};
+
+#[derive(Debug, Clone, PartialEq)]
+enum AppMode {
+    View,
+    Select,
+}
+
+impl From<&AppMode> for String {
+    fn from(value: &AppMode) -> Self {
+        match value {
+            AppMode::View => "View".into(),
+            AppMode::Select => "Select".into(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct App {
@@ -22,6 +43,9 @@ pub struct App {
     this_day: u8,
     this_month: u8,
     this_year: i32,
+    selected_day: u8,
+    mode: AppMode,
+    events: EventStore<Local>,
 
     // TODO: Need to read all of these with the ICS reader
     // TODO: library. Should read all of the events in all
@@ -32,6 +56,7 @@ pub struct App {
 }
 
 const TODAY_STYLE: DayStyle = DayStyle::Colored(DayColor::Blue);
+const SELECTED_STYLE: DayStyle = DayStyle::Highlighted(DayColor::Blue);
 const EVENT_STYLE: DayStyle = DayStyle::Colored(DayColor::Green);
 
 impl Default for App {
@@ -43,6 +68,7 @@ impl Default for App {
         let this_day = time_now.day() as u8;
         let this_month = time_now.month() as u8;
         let this_year = time_now.year();
+        let mode = AppMode::View;
 
         App {
             exit: false,
@@ -50,30 +76,41 @@ impl Default for App {
             current_year: this_year,
             calendar_model: calendar_model.clone(),
             calendar_view: CalendarView {
+                title: String::from(&mode),
                 month_name: calendar_model.month_name,
                 start_day: calendar_model.start_day,
                 year: time_now.year(),
                 n_days: calendar_model.n_days as usize,
                 styled_days: vec![(time_now.day() as u8, TODAY_STYLE)],
+                event: None,
             },
 
             this_day,
             this_month,
             this_year,
+            selected_day: this_day,
+            mode,
+            events: Default::default(),
             ics_directory: None,
         }
     }
 }
 
 impl App {
-
     // TODO: I don't like this, but it looks rustonic...
     pub fn with_ics_dir(&self, ics_directory: Option<String>) -> anyhow::Result<Self> {
         let mut ret = self.clone();
         ret.ics_directory = ics_directory.clone();
+        ret.events = events_from_file(&ics_directory)?;
 
-        let new_styles = get_styles(&ics_directory, self.this_month, self.this_year, self.calendar_model.n_days)?;
-        ret.calendar_view.styled_days = [new_styles, self.calendar_view.styled_days.clone()].concat();
+        let new_styles = get_styles(
+            &ics_directory,
+            self.this_month,
+            self.this_year,
+            self.calendar_model.n_days,
+        )?;
+        ret.calendar_view.styled_days =
+            [new_styles, self.calendar_view.styled_days.clone()].concat();
 
         Ok(ret)
     }
@@ -97,20 +134,54 @@ impl App {
             // it's important to check that the event is a key press event as
             // crossterm also emits key release and repeat events on Windows.}
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)
+                match self.mode {
+                    AppMode::View => self.handle_key_event_view(key_event),
+                    AppMode::Select => self.handle_key_event_select(key_event),
+                }
             }
             _ => {}
         };
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key_event: KeyEvent) {
+    fn handle_key_event_view(&mut self, key_event: KeyEvent) {
         match key_event.code {
-            KeyCode::Right | KeyCode::Char('j') => self.next_calendar(),
-            KeyCode::Left | KeyCode::Char('k') => self.prev_calendar(),
+            KeyCode::Up | KeyCode::Char('j') => self.next_calendar(),
+            KeyCode::Down | KeyCode::Char('k') => self.prev_calendar(),
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
+            KeyCode::Enter => self.switch_to_select_mode(),
             _ => {}
         }
+        self.calendar_view.title = String::from(&self.mode);
+    }
+
+    fn handle_key_event_select(&mut self, key_event: KeyEvent) {
+        match key_event.code {
+            KeyCode::Down | KeyCode::Char('j') => self.selection_down(),
+            KeyCode::Up | KeyCode::Char('k') => self.selection_up(),
+            KeyCode::Left | KeyCode::Char('h') => self.selection_left(),
+            KeyCode::Right | KeyCode::Char('l') => self.selection_right(),
+            KeyCode::Char('q') | KeyCode::Esc => self.exit(),
+            KeyCode::Enter => self.switch_to_view_mode(),
+            _ => {}
+        }
+        self.calendar_view.title = String::from(&self.mode);
+    }
+
+    fn switch_to_select_mode(&mut self) {
+        self.mode = AppMode::Select;
+
+        // TODO: This should contingent on today being in this month / year
+        let thresh = self.this_day as i16;
+        self.selection_move(0, |_| thresh);
+    }
+
+    fn switch_to_view_mode(&mut self) {
+        self.mode = AppMode::View;
+
+        // TODO: This should contingent on today being in this month / year
+        self.selected_day = self.this_day;
+        self.view_move();
     }
 
     fn exit(&mut self) {
@@ -127,16 +198,72 @@ impl App {
             && target_day == self.this_day
     }
 
-    fn next_calendar(&mut self) {
-        self.current_year += self.current_month as i32 / 12;
-        self.current_month = self.current_month.rem_euclid(12) + 1;
+    // Calendar Select functions
+    fn selection_move<F: Fn(i16) -> i16>(&mut self, day_offset: i16, comp: F) {
+        let next_selection = self.selected_day as i16 + day_offset;
+        self.selected_day = comp(next_selection) as u8;
 
-        // TODO: ideally we would update instead of recreate?
+        // TODO: Copied everywhere
+        let mut styled_days = get_styles(
+            &self.ics_directory,
+            self.current_month,
+            self.current_year,
+            self.calendar_model.n_days,
+        )
+        .unwrap_or(vec![]);
+
+        styled_days.push((self.selected_day, SELECTED_STYLE));
+
+        // TODO: This only supports one event!!!
+        let low = Local.with_ymd_and_hms(self.current_year, self.current_month as u32, self.selected_day as u32, 0, 0, 0).unwrap();
+        let high = low + Duration::days(1);
+        let event = self.events
+            .by_range(low, high)
+            .and_then(|f| f.first().cloned());
+
+        self.calendar_view = CalendarView {
+            title: self.calendar_view.title.clone(),
+            month_name: self.calendar_model.month_name.clone(),
+            start_day: self.calendar_model.start_day,
+            year: self.current_year,
+            n_days: self.calendar_model.n_days as usize,
+            styled_days,
+            event,
+        };
+    }
+
+    fn selection_down(&mut self) {
+        let thresh = self.calendar_model.n_days as i16;
+        self.selection_move(7, |d| std::cmp::min(d, thresh));
+    }
+
+    fn selection_right(&mut self) {
+        let thresh = self.calendar_model.n_days as i16;
+        self.selection_move(1, |d| std::cmp::min(d, thresh));
+    }
+
+    fn selection_up(&mut self) {
+        self.selection_move(-7, |d| std::cmp::max(d, 1));
+    }
+
+    fn selection_left(&mut self) {
+        self.selection_move(-1, |d| std::cmp::max(d, 1));
+    }
+
+    // Calendar View functions
+    // TODO: This function is not really a move, it should be called
+    // TODO: something along the lines of "updating calendar obj"
+    fn view_move(&mut self) {
         self.calendar_model =
             CalendarModel::new(None, self.current_month, self.current_year).unwrap();
 
-        let mut styled_days = get_styles(&self.ics_directory, self.current_month, self.current_year, self.calendar_model.n_days)
-            .unwrap_or(vec![]);
+        let mut styled_days = get_styles(
+            &self.ics_directory,
+            self.current_month,
+            self.current_year,
+            self.calendar_model.n_days,
+        )
+        .unwrap_or(vec![]);
 
         if let Some(maybe_today) = NaiveDate::from_ymd_opt(
             self.current_year,
@@ -148,56 +275,35 @@ impl App {
         }
 
         self.calendar_view = CalendarView {
+            title: self.calendar_view.title.clone(),
             month_name: self.calendar_model.month_name.clone(),
             start_day: self.calendar_model.start_day,
             year: self.current_year,
             n_days: self.calendar_model.n_days as usize,
             styled_days,
+            event: None,
         };
     }
 
+    fn next_calendar(&mut self) {
+        self.current_year += self.current_month as i32 / 12;
+        self.current_month = self.current_month.rem_euclid(12) + 1;
+        self.view_move();
+    }
+
     fn prev_calendar(&mut self) {
-        // TODO: Need to implement this
-        self.current_year -= (12 - (self.current_month as i32 - 1).rem_euclid(12)) / 12;
+        self.current_year += ((self.current_month as i32 - 1).rem_euclid(12) - 12) / 12;
         self.current_month = if self.current_month == 1 {
             12
         } else {
             self.current_month - 1
         };
-
-        // TODO: ideally we would update instead of recreate?
-        self.calendar_model =
-            CalendarModel::new(None, self.current_month, self.current_year).unwrap();
-
-
-        let mut styled_days = get_styles(&self.ics_directory, self.current_month, self.current_year, self.calendar_model.n_days)
-            .unwrap_or(vec![]);
-
-        if let Some(maybe_today) = NaiveDate::from_ymd_opt(
-            self.current_year,
-            self.current_month as u32,
-            self.this_day as u32,
-        ) && self.is_today(maybe_today)
-        {
-            styled_days.push((self.this_day, TODAY_STYLE));
-        }
-
-        self.calendar_view = CalendarView {
-            month_name: self.calendar_model.month_name.clone(),
-            start_day: self.calendar_model.start_day,
-            year: self.current_year,
-            n_days: self.calendar_model.n_days as usize,
-            styled_days,
-        };
+        self.view_move();
     }
 }
 
-
-// TODO: This should probably be per calendar config
-fn get_styles(ics_directory: &Option<String>, month: u8, year: i32, n_days: u8) -> anyhow::Result<Vec<(u8, DayStyle)>> {
-    let file_path = ics_directory
-        .clone()
-        .context("file path was not given")?;
+fn events_from_file(ics_directory: &Option<String>) -> anyhow::Result<EventStore<Local>> {
+    let file_path = ics_directory.clone().context("file path was not given")?;
 
     let file = File::open(file_path)?;
     let file_buf = BufReader::new(file);
@@ -205,7 +311,17 @@ fn get_styles(ics_directory: &Option<String>, month: u8, year: i32, n_days: u8) 
     // TODO: We want to save this inside the App as
     // TODO: the state of the events, not read these files
     // TODO: whenever
-    let events = read_events(file_buf, &Local)?;
+    read_events(file_buf, &Local)
+}
+
+// TODO: This should probably be per calendar config
+fn get_styles(
+    ics_directory: &Option<String>,
+    month: u8,
+    year: i32,
+    n_days: u8,
+) -> anyhow::Result<Vec<(u8, DayStyle)>> {
+    let events = events_from_file(ics_directory)?;
 
     let low = Local
         .with_ymd_and_hms(year, month as u32, 1, 0, 0, 0)
@@ -245,11 +361,13 @@ mod tests {
     ) -> anyhow::Result<()> {
         let calendar_model = CalendarModel::new(None, current_month, current_year)?;
         let calendar_view = CalendarView {
+            title: String::from("View"),
             month_name: calendar_model.month_name.clone(),
             start_day: calendar_model.start_day,
             year: current_year,
             n_days: calendar_model.n_days as usize,
             styled_days: Default::default(),
+            event: None,
         };
 
         let mut app = App {
@@ -281,11 +399,13 @@ mod tests {
     ) -> anyhow::Result<()> {
         let calendar_model = CalendarModel::new(None, current_month, current_year)?;
         let calendar_view = CalendarView {
+            title: String::from("View"),
             month_name: calendar_model.month_name.clone(),
             start_day: calendar_model.start_day,
             year: current_year,
             n_days: calendar_model.n_days as usize,
             styled_days: Default::default(),
+            event: None,
         };
         let mut app = App {
             exit,
