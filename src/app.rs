@@ -341,37 +341,7 @@ impl App {
         } else {
             self.current_month - 1
         };
-
-        // TODO: ideally we would update instead of recreate?
-        self.calendar_model =
-            CalendarModel::new(None, self.current_month, self.current_year).unwrap();
-
-        let mut styled_days = get_styles(
-            &self.ics_directory,
-            self.current_month,
-            self.current_year,
-            self.calendar_model.n_days,
-        )
-        .unwrap_or(vec![]);
-
-        if let Some(maybe_today) = NaiveDate::from_ymd_opt(
-            self.current_year,
-            self.current_month as u32,
-            self.this_day as u32,
-        ) && self.is_today(maybe_today)
-        {
-            styled_days.push((self.this_day, TODAY_STYLE));
-        }
-
-        self.calendar_view = CalendarView {
-            title: self.calendar_view.title.clone(),
-            month_name: self.calendar_model.month_name.clone(),
-            start_day: self.calendar_model.start_day,
-            year: self.current_year,
-            n_days: self.calendar_model.n_days as usize,
-            styled_days,
-            event: None,
-        };
+        self.view_move();
     }
 }
 
