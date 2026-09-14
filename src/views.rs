@@ -1,6 +1,10 @@
 use chrono::{DateTime, Local};
 use ratatui::{
-    buffer::Buffer, layout::{Constraint, Layout, Rect}, style::{Color, Style, Stylize}, text::{Line, Span, Text}, widgets::{Block, Paragraph, Widget, Wrap},
+    buffer::Buffer,
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Style, Stylize},
+    text::{Line, Span, Text},
+    widgets::{Block, Paragraph, Widget, Wrap},
 };
 
 use crate::models::Event;
@@ -52,7 +56,7 @@ pub struct CalendarView {
     pub year: i32,
     pub n_days: usize,
     pub styled_days: Vec<(u8, DayStyle)>,
-    pub event: Option<Event<Local>>
+    pub event: Option<Event<Local>>,
 }
 
 impl Widget for &CalendarView {
@@ -71,8 +75,7 @@ impl Widget for &CalendarView {
         // inner element
         // Note: the lengths here should be the total length of items
         // Note: inside.
-        let horizontal_size = 7*4;
-
+        let horizontal_size = 7 * 4;
 
         // TODO: Figure out whether a fixes size is better for
         // TODO: when we have events showing up
@@ -88,7 +91,11 @@ impl Widget for &CalendarView {
 
         if self.event.is_some() {
             // Constraitns(bot, mid, top)  = calendar, pad, event
-            let vertical = Layout::vertical([Constraint::Length(7), Constraint::Length(1), Constraint::Length(2)]);
+            let vertical = Layout::vertical([
+                Constraint::Length(7),
+                Constraint::Length(1),
+                Constraint::Length(2),
+            ]);
             let [top_area, _mid_area, bot_area] = inner_area.layout(&vertical);
 
             // TODO: Make the top area for the rectangle if there's space
@@ -107,7 +114,6 @@ impl Widget for &CalendarView {
 }
 
 impl CalendarView {
-
     pub fn render_size_warning(&self, area: Rect, buf: &mut Buffer) {
         let warning_text = format!("need min {}x{}", MIN_CALENDAR_WIDTH, MIN_CALENDAR_HEIGHT);
         let block = Block::bordered();

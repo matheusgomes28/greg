@@ -1,5 +1,6 @@
 use std::{
-    fs::File, io::{self, BufReader}
+    fs::File,
+    io::{self, BufReader},
 };
 
 use crate::{
@@ -133,12 +134,10 @@ impl App {
         match event::read()? {
             // it's important to check that the event is a key press event as
             // crossterm also emits key release and repeat events on Windows.}
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                match self.mode {
-                    AppMode::View => self.handle_key_event_view(key_event),
-                    AppMode::Select => self.handle_key_event_select(key_event),
-                }
-            }
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => match self.mode {
+                AppMode::View => self.handle_key_event_view(key_event),
+                AppMode::Select => self.handle_key_event_select(key_event),
+            },
             _ => {}
         };
         Ok(())
@@ -215,9 +214,19 @@ impl App {
         styled_days.push((self.selected_day, SELECTED_STYLE));
 
         // TODO: This only supports one event!!!
-        let low = Local.with_ymd_and_hms(self.current_year, self.current_month as u32, self.selected_day as u32, 0, 0, 0).unwrap();
+        let low = Local
+            .with_ymd_and_hms(
+                self.current_year,
+                self.current_month as u32,
+                self.selected_day as u32,
+                0,
+                0,
+                0,
+            )
+            .unwrap();
         let high = low + Duration::days(1);
-        let event = self.events
+        let event = self
+            .events
             .by_range(low, high)
             .and_then(|f| f.first().cloned());
 
