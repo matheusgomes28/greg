@@ -83,7 +83,7 @@ impl Default for App {
                 year: time_now.year(),
                 n_days: calendar_model.n_days as usize,
                 styled_days: vec![(time_now.day() as u8, TODAY_STYLE)],
-                event: None,
+                events: None,
             },
 
             this_day,
@@ -160,6 +160,7 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.selection_up(),
             KeyCode::Left | KeyCode::Char('h') => self.selection_left(),
             KeyCode::Right | KeyCode::Char('l') => self.selection_right(),
+            KeyCode::Char('a') => self.selection_event_move(),
             KeyCode::Char('q') | KeyCode::Esc => self.exit(),
             KeyCode::Enter => self.switch_to_view_mode(),
             _ => {}
@@ -198,6 +199,12 @@ impl App {
     }
 
     // Calendar Select functions
+    fn selection_event_move(&mut self) {
+        if let Some(events) = self.calendar_view.events.as_mut() {
+            events.rotate_right(1);
+        }
+    }
+
     fn selection_move<F: Fn(i16) -> i16>(&mut self, day_offset: i16, comp: F) {
         let next_selection = self.selected_day as i16 + day_offset;
         self.selected_day = comp(next_selection) as u8;
@@ -225,10 +232,7 @@ impl App {
             )
             .unwrap();
         let high = low + Duration::days(1);
-        let event = self
-            .events
-            .by_range(low, high)
-            .and_then(|f| f.first().cloned());
+        let events = self.events.by_range(low, high);
 
         self.calendar_view = CalendarView {
             title: self.calendar_view.title.clone(),
@@ -237,7 +241,7 @@ impl App {
             year: self.current_year,
             n_days: self.calendar_model.n_days as usize,
             styled_days,
-            event,
+            events,
         };
     }
 
@@ -290,7 +294,7 @@ impl App {
             year: self.current_year,
             n_days: self.calendar_model.n_days as usize,
             styled_days,
-            event: None,
+            events: None,
         };
     }
 
@@ -376,7 +380,7 @@ mod tests {
             year: current_year,
             n_days: calendar_model.n_days as usize,
             styled_days: Default::default(),
-            event: None,
+            events: None,
         };
 
         let mut app = App {
@@ -414,7 +418,7 @@ mod tests {
             year: current_year,
             n_days: calendar_model.n_days as usize,
             styled_days: Default::default(),
-            event: None,
+            events: None,
         };
         let mut app = App {
             exit,

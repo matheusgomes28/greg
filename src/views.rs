@@ -56,7 +56,7 @@ pub struct CalendarView {
     pub year: i32,
     pub n_days: usize,
     pub styled_days: Vec<(u8, DayStyle)>,
-    pub event: Option<Event<Local>>,
+    pub events: Option<Vec<Event<Local>>>,
 }
 
 impl Widget for &CalendarView {
@@ -82,19 +82,19 @@ impl Widget for &CalendarView {
         // let vertical_size: u16 = self.event
         //     .clone()
         //     .map_or(7, |_x| 10);
-        let vertical_size: u16 = 10;
+        let vertical_size: u16 = 11;
 
         let inner_area = block
             .inner(area)
             .centered_horizontally(Constraint::Length(horizontal_size))
             .centered_vertically(Constraint::Length(vertical_size));
 
-        if self.event.is_some() {
+        if self.events.is_some() {
             // Constraitns(bot, mid, top)  = calendar, pad, event
             let vertical = Layout::vertical([
                 Constraint::Length(7),
                 Constraint::Length(1),
-                Constraint::Length(2),
+                Constraint::Length(3),
             ]);
             let [top_area, _mid_area, bot_area] = inner_area.layout(&vertical);
 
@@ -146,7 +146,7 @@ impl CalendarView {
         let vertical = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]);
         let [title_area, desc_area] = area.layout(&vertical);
 
-        let event = self.event.as_ref().unwrap();
+        let event = self.events.as_ref().unwrap().first().unwrap();
         let event_dt = format!("{}", event.start.format("%H:%M:%S"));
         let title = Line::from_iter([
             Span::from(&event.title).blue().bold(),
