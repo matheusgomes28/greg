@@ -186,7 +186,10 @@ impl App {
         self.mode = AppMode::DaySelection;
 
         // TODO: This should contingent on today being in this month / year
-        let thresh = self.this_day as i16;
+        let thresh = std::cmp::min(
+            std::cmp::max(self.selected_day, 1),
+            self.calendar_model.n_days,
+        ) as i16;
         self.selection_move(0, |_| thresh);
     }
 
@@ -194,7 +197,6 @@ impl App {
         self.mode = AppMode::MonthView;
 
         // TODO: This should contingent on today being in this month / year
-        self.selected_day = self.this_day;
         self.view_move();
     }
 

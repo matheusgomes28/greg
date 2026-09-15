@@ -19,9 +19,9 @@ pub enum DayColor {
     Blue,
 }
 
-impl Into<Color> for DayColor {
-    fn into(self) -> Color {
-        match self {
+impl From<DayColor> for Color {
+    fn from(value: DayColor) -> Self {
+        match value {
             DayColor::Red => Color::Red,
             DayColor::Green => Color::Green,
             DayColor::Blue => Color::Blue,
@@ -37,9 +37,9 @@ pub enum DayStyle {
     Normal,
 }
 
-impl Into<Style> for DayStyle {
-    fn into(self) -> Style {
-        match self {
+impl From<DayStyle> for Style {
+    fn from(value: DayStyle) -> Self {
+        match value {
             DayStyle::Normal => Style::new(),
             DayStyle::Bold(color) => Style::default().bold().fg(color.into()),
             DayStyle::Highlighted(color) => Style::default().bg(color.into()),
@@ -75,24 +75,21 @@ impl Widget for &CalendarView {
         // inner element
         // Note: the lengths here should be the total length of items
         // Note: inside.
-        let horizontal_size = 7 * 4;
-        // TODO: This causes the arrows in the event to appear wider than
-        // TODO: the calendar area. This is due to the grid split needing
-        // TODO: uniform size for all cells, but leaves the last column wider
-        // TODO: than it needs to be.
+        let horizontal_size = 26; // 7 * 4 char cells, last cell only 2 chars
 
         // TODO: Figure out whether a fixes size is better for
         // TODO: when we have events showing up
-        // let vertical_size: u16 = self.event
+        // let vertical_size: u16 = self.events
         //     .clone()
-        //     .map_or(7, |_x| 10);
-        let vertical_size: u16 = 11;
+        //     .map_or(7, |_x| 11);
+        let vertical_size = 11;
 
         let inner_area = block
             .inner(area)
             .centered_horizontally(Constraint::Length(horizontal_size))
             .centered_vertically(Constraint::Length(vertical_size));
 
+        // TODO: Could the events be Some but also empty vec?
         if self.events.is_some() {
             // Constraitns(bot, mid, top)  = calendar, pad, event
             let vertical = Layout::vertical([
@@ -100,18 +97,14 @@ impl Widget for &CalendarView {
                 Constraint::Length(1),
                 Constraint::Length(3),
             ]);
-            let [top_area, _mid_area, bot_area] = inner_area.layout(&vertical);
+            let [top_area, _, bot_area] = inner_area.layout(&vertical);
 
-            // TODO: Make the top area for the rectangle if there's space
-
-            // TODO: Make the bottom box for the events name if there's space
             self.render_calendar(top_area, buf);
             self.render_event_details(bot_area, buf);
             block.render(area, buf);
             return;
         }
 
-        // TODO: Make the bottom box for the events name if there's space
         self.render_calendar(inner_area, buf);
         block.render(area, buf);
     }
@@ -133,8 +126,14 @@ impl CalendarView {
     }
 
     pub fn render_calendar(&self, area: Rect, buf: &mut Buffer) {
-        let col_constraints = (0..7).map(|_| Constraint::Length(4));
-        let row_constraits = (0..7).map(|_| Constraint::Length(1));
+        let col_constraints = [
+            [Constraint::Length(4); 6].as_slice(),
+            &[Constraint::Length(2)],
+        ]
+        .concat();
+        // let col_constraints= [Constraint::Length(4); 7];
+        let row_constraits = [Constraint::Length(1); 7];
+
         let horizontal = Layout::horizontal(col_constraints).spacing(0);
         let vertical = Layout::vertical(row_constraits).spacing(0);
 
@@ -170,11 +169,16 @@ impl CalendarView {
             Constraint::Fill(1),
             Constraint::Length(1),
         ]);
-        let [arrow_left_area, _, arrow_right_area] = arrow_area.layout(&arrow_layout);
-        let arrow_left = Span::from("");
-        arrow_left.render(arrow_left_area, buf);
-        let arrow_right = Span::from("");
-        arrow_right.render(arrow_right_area, buf);
+
+        if let Some(events) = self.events.as_ref()
+            && (events.len() > 1)
+        {
+            let [arrow_left_area, _, arrow_right_area] = arrow_area.layout(&arrow_layout);
+            let arrow_left = Span::from("");
+            arrow_left.render(arrow_left_area, buf);
+            let arrow_right = Span::from("");
+            arrow_right.render(arrow_right_area, buf);
+        }
     }
 
     pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {
