@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::Local;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
@@ -76,6 +76,10 @@ impl Widget for &CalendarView {
         // Note: the lengths here should be the total length of items
         // Note: inside.
         let horizontal_size = 7 * 4;
+        // TODO: This causes the arrows in the event to appear wider than
+        // TODO: the calendar area. This is due to the grid split needing
+        // TODO: uniform size for all cells, but leaves the last column wider
+        // TODO: than it needs to be.
 
         // TODO: Figure out whether a fixes size is better for
         // TODO: when we have events showing up
@@ -143,8 +147,12 @@ impl CalendarView {
     }
 
     pub fn render_event_details(&self, area: Rect, buf: &mut Buffer) {
-        let vertical = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]);
-        let [title_area, desc_area] = area.layout(&vertical);
+        let vertical = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ]);
+        let [title_area, desc_area, arrow_area] = area.layout(&vertical);
 
         let event = self.events.as_ref().unwrap().first().unwrap();
         let event_dt = format!("{}", event.start.format("%H:%M:%S"));
@@ -156,6 +164,17 @@ impl CalendarView {
 
         let desc = Line::from(Span::from(&event.desc).green());
         desc.render(desc_area, buf);
+
+        let arrow_layout = Layout::horizontal([
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ]);
+        let [arrow_left_area, _, arrow_right_area] = arrow_area.layout(&arrow_layout);
+        let arrow_left = Span::from("");
+        arrow_left.render(arrow_left_area, buf);
+        let arrow_right = Span::from("");
+        arrow_right.render(arrow_right_area, buf);
     }
 
     pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {

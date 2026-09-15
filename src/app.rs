@@ -17,15 +17,17 @@ use ratatui::{DefaultTerminal, Frame};
 
 #[derive(Debug, Clone, PartialEq)]
 enum AppMode {
-    View,
-    Select,
+    MonthView,
+    DaySelection,
+    EventSelection,
 }
 
 impl From<&AppMode> for String {
     fn from(value: &AppMode) -> Self {
         match value {
-            AppMode::View => "View".into(),
-            AppMode::Select => "Select".into(),
+            AppMode::MonthView => "MonthView".into(),
+            AppMode::DaySelection => "DaySelection".into(),
+            AppMode::EventSelection => "EventSelection".into(),
         }
     }
 }
@@ -69,7 +71,7 @@ impl Default for App {
         let this_day = time_now.day() as u8;
         let this_month = time_now.month() as u8;
         let this_year = time_now.year();
-        let mode = AppMode::View;
+        let mode = AppMode::MonthView;
 
         App {
             exit: false,
@@ -135,8 +137,9 @@ impl App {
             // it's important to check that the event is a key press event as
             // crossterm also emits key release and repeat events on Windows.}
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => match self.mode {
-                AppMode::View => self.handle_key_event_view(key_event),
-                AppMode::Select => self.handle_key_event_select(key_event),
+                AppMode::MonthView => self.handle_key_event_view(key_event),
+                AppMode::DaySelection => self.handle_key_event_select(key_event),
+                AppMode::EventSelection => self.handle_key_event_event(key_event),
             },
             _ => {}
         };
@@ -160,16 +163,27 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.selection_up(),
             KeyCode::Left | KeyCode::Char('h') => self.selection_left(),
             KeyCode::Right | KeyCode::Char('l') => self.selection_right(),
-            KeyCode::Char('a') => self.selection_event_move(),
-            KeyCode::Char('q') | KeyCode::Esc => self.exit(),
-            KeyCode::Enter => self.switch_to_view_mode(),
+            KeyCode::Char('q') => self.exit(),
+            KeyCode::Esc => self.switch_to_view_mode(),
+            KeyCode::Enter => self.switch_to_event_selection_mode(),
+            _ => {}
+        }
+        self.calendar_view.title = String::from(&self.mode);
+    }
+
+    fn handle_key_event_event(&mut self, key_event: KeyEvent) {
+        match key_event.code {
+            KeyCode::Left | KeyCode::Char('h') => self.selection_event_move(|e| e.rotate_left(1)),
+            KeyCode::Right | KeyCode::Char('l') => self.selection_event_move(|e| e.rotate_right(1)),
+            KeyCode::Char('q') => self.exit(),
+            KeyCode::Esc => self.switch_to_select_mode(),
             _ => {}
         }
         self.calendar_view.title = String::from(&self.mode);
     }
 
     fn switch_to_select_mode(&mut self) {
-        self.mode = AppMode::Select;
+        self.mode = AppMode::DaySelection;
 
         // TODO: This should contingent on today being in this month / year
         let thresh = self.this_day as i16;
@@ -177,11 +191,15 @@ impl App {
     }
 
     fn switch_to_view_mode(&mut self) {
-        self.mode = AppMode::View;
+        self.mode = AppMode::MonthView;
 
         // TODO: This should contingent on today being in this month / year
         self.selected_day = self.this_day;
         self.view_move();
+    }
+
+    fn switch_to_event_selection_mode(&mut self) {
+        self.mode = AppMode::EventSelection;
     }
 
     fn exit(&mut self) {
@@ -199,9 +217,9 @@ impl App {
     }
 
     // Calendar Select functions
-    fn selection_event_move(&mut self) {
+    fn selection_event_move<F: Fn(&mut Vec<crate::models::Event<Local>>)>(&mut self, move_fn: F) {
         if let Some(events) = self.calendar_view.events.as_mut() {
-            events.rotate_right(1);
+            move_fn(events);
         }
     }
 
