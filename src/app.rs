@@ -195,7 +195,6 @@ impl App {
 
     fn switch_to_view_mode(&mut self) {
         self.mode = AppMode::MonthView;
-
         // TODO: This should contingent on today being in this month / year
         self.view_move();
     }
@@ -421,10 +420,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::jan_2026(false, 1, 2026, 12, 2025)]
-    #[case::dec_2026(false, 12, 2026, 11, 2026)]
+    #[case::jan_2026(1, 2026, 12, 2025)]
+    #[case::dec_2026(12, 2026, 11, 2026)]
     fn prev_calendar(
-        #[case] exit: bool,
         #[case] current_month: u8,
         #[case] current_year: i32,
         #[case] exp_month: u8,
@@ -441,7 +439,7 @@ mod tests {
             events: None,
         };
         let mut app = App {
-            exit,
+            exit: false,
             current_month,
             current_year,
             calendar_model,
@@ -453,6 +451,43 @@ mod tests {
 
         assert_eq!(exp_month, app.current_month);
         assert_eq!(exp_year, app.current_year);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::oct_2026_1(20, 10, 2026, 21)]
+    #[case::oct_2026_2(24, 10, 2026, 25)]
+    #[case::oct_2026_3(30, 10, 2026, 31)]
+    #[case::oct_2026_4(31, 10, 2026, 31)]
+    fn selection_move_left(
+        #[case] current_day: u8,
+        #[case] current_month: u8,
+        #[case] current_year: i32,
+        #[case] exp_day: u8,
+    ) -> anyhow::Result<()> {
+        let calendar_model = CalendarModel::new(Some(current_day), current_month, current_year)?;
+        let calendar_view = CalendarView {
+            title: String::from("View"),
+            month_name: calendar_model.month_name.clone(),
+            start_day: calendar_model.start_day,
+            year: current_year,
+            n_days: calendar_model.n_days as usize,
+            styled_days: Default::default(),
+            events: None,
+        };
+        let mut app = App {
+            exit: false,
+            current_month,
+            current_year,
+            calendar_model,
+            calendar_view,
+            selected_day: current_day,
+            mode: AppMode::DaySelection,
+            ..Default::default()
+        };
+
+        app.selection_right();
+        assert_eq!(app.selected_day, exp_day);
         Ok(())
     }
 }
