@@ -380,6 +380,7 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
+    // View mode tests
     #[rstest]
     #[case::jan_2026(false, 1, 2026, 2, 2026)]
     #[case::dec_2026(false, 12, 2026, 1, 2027)]
@@ -391,28 +392,14 @@ mod tests {
         #[case] exp_month: u8,
         #[case] exp_year: i32,
     ) -> anyhow::Result<()> {
-        let calendar_model = CalendarModel::new(None, current_month, current_year)?;
-        let calendar_view = CalendarView {
-            title: String::from("View"),
-            month_name: calendar_model.month_name.clone(),
-            start_day: calendar_model.start_day,
-            year: current_year,
-            n_days: calendar_model.n_days as usize,
-            styled_days: Default::default(),
-            events: None,
-        };
-
         let mut app = App {
             exit,
             current_month,
             current_year,
-            calendar_model,
-            calendar_view,
             ..Default::default()
         };
 
         app.next_calendar();
-
         assert_eq!(exp_month, app.current_month);
         assert_eq!(exp_year, app.current_year);
 
@@ -428,65 +415,119 @@ mod tests {
         #[case] exp_month: u8,
         #[case] exp_year: i32,
     ) -> anyhow::Result<()> {
-        let calendar_model = CalendarModel::new(None, current_month, current_year)?;
-        let calendar_view = CalendarView {
-            title: String::from("View"),
-            month_name: calendar_model.month_name.clone(),
-            start_day: calendar_model.start_day,
-            year: current_year,
-            n_days: calendar_model.n_days as usize,
-            styled_days: Default::default(),
-            events: None,
-        };
         let mut app = App {
             exit: false,
             current_month,
             current_year,
-            calendar_model,
-            calendar_view,
             ..Default::default()
         };
 
         app.prev_calendar();
-
         assert_eq!(exp_month, app.current_month);
         assert_eq!(exp_year, app.current_year);
         Ok(())
     }
 
+    // Selection mode tests
     #[rstest]
     #[case::oct_2026_1(20, 10, 2026, 21)]
     #[case::oct_2026_2(24, 10, 2026, 25)]
     #[case::oct_2026_3(30, 10, 2026, 31)]
     #[case::oct_2026_4(31, 10, 2026, 31)]
-    fn selection_move_left(
+    fn selection_move_right(
         #[case] current_day: u8,
         #[case] current_month: u8,
         #[case] current_year: i32,
         #[case] exp_day: u8,
     ) -> anyhow::Result<()> {
-        let calendar_model = CalendarModel::new(Some(current_day), current_month, current_year)?;
-        let calendar_view = CalendarView {
-            title: String::from("View"),
-            month_name: calendar_model.month_name.clone(),
-            start_day: calendar_model.start_day,
-            year: current_year,
-            n_days: calendar_model.n_days as usize,
-            styled_days: Default::default(),
-            events: None,
-        };
         let mut app = App {
             exit: false,
             current_month,
             current_year,
-            calendar_model,
-            calendar_view,
             selected_day: current_day,
             mode: AppMode::DaySelection,
             ..Default::default()
         };
 
         app.selection_right();
+        assert_eq!(app.selected_day, exp_day);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::oct_2026_1(1, 10, 2026, 1)]
+    #[case::oct_2026_2(4, 10, 2026, 3)]
+    #[case::oct_2026_3(11, 10, 2026, 10)]
+    #[case::oct_2026_4(18, 10, 2026, 17)]
+    #[case::oct_2026_5(20, 10, 2026, 19)]
+    fn selection_move_left(
+        #[case] current_day: u8,
+        #[case] current_month: u8,
+        #[case] current_year: i32,
+        #[case] exp_day: u8,
+    ) -> anyhow::Result<()> {
+        let mut app = App {
+            exit: false,
+            current_month,
+            current_year,
+            selected_day: current_day,
+            mode: AppMode::DaySelection,
+            ..Default::default()
+        };
+
+        app.selection_left();
+        assert_eq!(app.selected_day, exp_day);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::oct_2026_1(1, 10, 2026, 8)]
+    #[case::oct_2026_2(8, 10, 2026, 15)]
+    #[case::oct_2026_3(15, 10, 2026, 22)]
+    #[case::oct_2026_4(22, 10, 2026, 29)]
+    #[case::oct_2026_5(29, 10, 2026, 31)]
+    fn selection_move_down(
+        #[case] current_day: u8,
+        #[case] current_month: u8,
+        #[case] current_year: i32,
+        #[case] exp_day: u8,
+    ) -> anyhow::Result<()> {
+        let mut app = App {
+            exit: false,
+            current_month,
+            current_year,
+            selected_day: current_day,
+            mode: AppMode::DaySelection,
+            ..Default::default()
+        };
+
+        app.selection_down();
+        assert_eq!(app.selected_day, exp_day);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::oct_2026_1(1, 10, 2026, 1)]
+    #[case::oct_2026_2(7, 10, 2026, 1)]
+    #[case::oct_2026_3(14, 10, 2026, 7)]
+    #[case::oct_2026_4(21, 10, 2026, 14)]
+    #[case::oct_2026_5(28, 10, 2026, 21)]
+    fn selection_move_up(
+        #[case] current_day: u8,
+        #[case] current_month: u8,
+        #[case] current_year: i32,
+        #[case] exp_day: u8,
+    ) -> anyhow::Result<()> {
+        let mut app = App {
+            exit: false,
+            current_month,
+            current_year,
+            selected_day: current_day,
+            mode: AppMode::DaySelection,
+            ..Default::default()
+        };
+
+        app.selection_up();
         assert_eq!(app.selected_day, exp_day);
         Ok(())
     }
