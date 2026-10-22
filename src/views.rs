@@ -1,10 +1,25 @@
+use chrono::Local;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, Paragraph, Widget},
+    widgets::{Block, Paragraph, Widget, Wrap},
 };
+
+use crate::models::Event;
+
+const MIN_CALENDAR_WIDTH: u16 = 32;
+const MIN_CALENDAR_HEIGHT: u16 = 13;
+
+fn default_events() -> Vec<Event<Local>> {
+    vec![Event::<Local> {
+        title: String::from("No events this day"),
+        desc: String::from("relax - nothing to do"),
+        start: Default::default(),
+        end: Default::default(),
+    }]
+}
 
 #[derive(Debug, Clone)]
 pub enum DayColor {
@@ -13,9 +28,9 @@ pub enum DayColor {
     Blue,
 }
 
-impl Into<Color> for DayColor {
-    fn into(self) -> Color {
-        match self {
+impl From<DayColor> for Color {
+    fn from(value: DayColor) -> Self {
+        match value {
             DayColor::Red => Color::Red,
             DayColor::Green => Color::Green,
             DayColor::Blue => Color::Blue,
@@ -27,65 +42,154 @@ impl Into<Color> for DayColor {
 pub enum DayStyle {
     Colored(DayColor),
     Bold(DayColor),
+    Highlighted(DayColor),
     Normal,
 }
 
-impl Into<Style> for DayStyle {
-    fn into(self) -> Style {
-        match self {
+impl From<DayStyle> for Style {
+    fn from(value: DayStyle) -> Self {
+        match value {
             DayStyle::Normal => Style::new(),
             DayStyle::Bold(color) => Style::default().bold().fg(color.into()),
+            DayStyle::Highlighted(color) => Style::default().bg(color.into()),
             DayStyle::Colored(color) => Style::default().fg(color.into()),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CalendarView {
+    pub title: String,
     pub month_name: String,
     pub start_day: u8,
     pub year: i32,
     pub n_days: usize,
     pub styled_days: Vec<(u8, DayStyle)>,
+    pub events: Option<Vec<Event<Local>>>,
 }
 
 impl Widget for &CalendarView {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title_text = format!("{} {}", self.year, self.month_name);
+        if (area.width < MIN_CALENDAR_WIDTH) || (area.height < MIN_CALENDAR_HEIGHT) {
+            self.render_size_warning(area, buf);
+            return;
+        }
+
+        let title_text = format!("{} {} - {}", self.year, self.month_name, self.title);
         let block = Block::bordered()
             .title_alignment(ratatui::layout::HorizontalAlignment::Center)
             .title(Line::from(title_text));
 
-        let col_constraints = (0..7).map(|_| Constraint::Length(4));
-        let row_constraits = (0..7).map(|_| Constraint::Length(1));
+        // Constraints set the physical width and height for the
+        // inner element
+        // Note: the lengths here should be the total length of items
+        // Note: inside.
+        let horizontal_size = 26; // 7 * 4 char cells, last cell only 2 chars
 
-        let horizontal = Layout::horizontal(col_constraints).spacing(0);
-        let vertical = Layout::vertical(row_constraits).spacing(0);
+        // TODO: Figure out whether a fixes size is better for
+        // TODO: when we have events showing up
+        // let vertical_size: u16 = self.events
+        //     .clone()
+        //     .map_or(7, |_x| 11);
+        let vertical_size = 11;
 
         let inner_area = block
             .inner(area)
-            .centered_horizontally(Constraint::Length(7 * 4))
-            .centered_vertically(Constraint::Length(7));
+            .centered_horizontally(Constraint::Length(horizontal_size))
+            .centered_vertically(Constraint::Length(vertical_size));
 
-        let rows = vertical.split(inner_area);
-        let cells = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
+        // TODO: Could the events be Some but also empty vec?
+        // Constraitns(bot, mid, top)  = calendar, pad, event
+        let vertical = Layout::vertical([
+            Constraint::Length(7),
+            Constraint::Length(1),
+            Constraint::Length(3),
+        ]);
+        let [top_area, _, bot_area] = inner_area.layout(&vertical);
 
-        let header_cells = cells.clone().take(7).collect::<Vec<_>>();
-        let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
-
-        self.render_weeks_header(&header_cells, buf);
-        self.render_days(
-            &weeks_cells,
-            buf,
-            self.start_day as i32,
-            self.n_days,
-        );
-
+        self.render_calendar(top_area, buf);
+        self.render_event_details(bot_area, buf);
         block.render(area, buf);
     }
 }
 
 impl CalendarView {
+    pub fn render_size_warning(&self, area: Rect, buf: &mut Buffer) {
+        let warning_text = format!("need min {}x{}", MIN_CALENDAR_WIDTH, MIN_CALENDAR_HEIGHT);
+        let block = Block::bordered();
+        let inner_area = block.inner(area).centered(
+            Constraint::Length(warning_text.len() as u16),
+            Constraint::Length(1),
+        );
+
+        let text = Text::from(warning_text);
+        Paragraph::new(text)
+            .wrap(Wrap { trim: true })
+            .render(inner_area, buf);
+    }
+
+    pub fn render_calendar(&self, area: Rect, buf: &mut Buffer) {
+        let col_constraints = [
+            [Constraint::Length(4); 6].as_slice(),
+            &[Constraint::Length(2)],
+        ]
+        .concat();
+        // let col_constraints= [Constraint::Length(4); 7];
+        let row_constraits = [Constraint::Length(1); 7];
+
+        let horizontal = Layout::horizontal(col_constraints).spacing(0);
+        let vertical = Layout::vertical(row_constraits).spacing(0);
+
+        let rows = vertical.split(area);
+        let cells = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
+        let header_cells = cells.clone().take(7).collect::<Vec<_>>();
+        let weeks_cells = cells.clone().skip(7).collect::<Vec<_>>();
+        self.render_weeks_header(&header_cells, buf);
+        self.render_days(&weeks_cells, buf, self.start_day as i32, self.n_days);
+    }
+
+    pub fn render_event_details(&self, area: Rect, buf: &mut Buffer) {
+        let vertical = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ]);
+        let [title_area, desc_area, time_area] = area.layout(&vertical);
+
+        // Only in rust
+        let event = self
+            .events
+            .clone()
+            .unwrap_or(default_events())
+            .first()
+            .cloned()
+            .unwrap();
+
+        let title = Paragraph::new(event.title).blue().bold().centered();
+        title.render(title_area, buf);
+
+        let desc = Paragraph::new(event.desc).green().centered();
+        desc.render(desc_area, buf);
+
+        let arrow_layout = Layout::horizontal([
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+        ]);
+
+        let [arrow_left_area, time_str_area, arrow_right_area] = time_area.layout(&arrow_layout);
+
+        let arrow_left = Span::from("");
+        arrow_left.render(arrow_left_area, buf);
+        let arrow_right = Span::from("");
+        arrow_right.render(arrow_right_area, buf);
+
+        let event_start_str = format!("{}", event.start.format("%H:%M"));
+        let event_end_str = format!("{}", event.end.format("%H:%M"));
+        let time_area = Paragraph::new(format!("{}-{}", event_start_str, event_end_str)).centered();
+        time_area.render(time_str_area, buf);
+    }
+
     pub fn render_weeks_header(&self, row: &[Rect], buf: &mut Buffer) {
         let header_style = Style::default().bold().fg(Color::Blue);
 
@@ -94,13 +198,7 @@ impl CalendarView {
         }
     }
 
-    pub fn render_days(
-        &self,
-        cells: &[Rect],
-        buf: &mut Buffer,
-        start_day: i32,
-        n_days: usize,
-    ) {
+    pub fn render_days(&self, cells: &[Rect], buf: &mut Buffer, start_day: i32, n_days: usize) {
         for (i, &cell) in cells.iter().take(n_days + start_day as usize).enumerate() {
             // Offset the value of each cell by the starting day,
             // and only draw cells that have a value of > 1
@@ -121,3 +219,60 @@ impl CalendarView {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::bad_width1(16, 10)]
+    #[case::bad_width2(16, 20)]
+    #[case::bad_width3(16, 50)]
+    #[case::bad_width4(16, 100)]
+    #[case::bad_height1(32, 12)]
+    #[case::bad_height2(32, 5)]
+    #[case::bad_height3(32, 4)]
+    fn renders_warning(#[case] width: u16, #[case] height: u16) {
+        // 1. Create a test backend of size 40x5
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        // 2. Draw your widget
+        terminal
+            .draw(|f| {
+                let app = CalendarView::default();
+                f.render_widget(&app, f.area());
+            })
+            .unwrap();
+
+        // 3. Inspect the buffer contents
+        let buffer = format!("{:?}", terminal.backend().buffer());
+        assert!(buffer.contains("need min 32x13",));
+    }
+
+    #[rstest]
+    #[case::ideal_width(32, 13)]
+    #[case::good_size1(40, 50)]
+    fn does_not_render_warning(#[case] width: u16, #[case] height: u16) {
+        // 1. Create a test backend of size 40x5
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        // 2. Draw your widget
+        terminal
+            .draw(|f| {
+                let app = CalendarView::default();
+                f.render_widget(&app, f.area());
+            })
+            .unwrap();
+
+        // 3. Inspect the buffer contents
+        let buffer = format!("{:?}", terminal.backend().buffer());
+        assert!(!buffer.contains("need min 32x13",));
+    }
+}
+
+// TODO: We can add some tests to see if the size warning was drawn
