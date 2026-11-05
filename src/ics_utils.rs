@@ -13,6 +13,13 @@ enum Frequency {
     Yearly,
 }
 
+// The year limit for all repeating events. We will
+// duplicate events until this year (not inclusive)!
+const REPEAT_EVENT_YEAR: i32 = 2040;
+// TODO: The above should probably be dynamic per event,
+// TODO: but I really doubt I'll be using this calendar
+// TODO: after 2040!
+
 /// Given the start and end of an event with a frequency,
 /// this function will duplicate the event with the updated
 /// start day according to the frequency given.
@@ -37,23 +44,30 @@ fn expand_event<T: TimeZone>(
     end: &DateTime<T>,
     freq: Frequency,
 ) -> Vec<DateTime<T>> {
+    // Comparison functions to limit the number of
+    // events duplicated
+    let l = |d: &DateTime<T>| d.year() < REPEAT_EVENT_YEAR;
+
     match freq {
         Frequency::Daily => {
             let count = end.day0() - start.day0() + 1;
             (0..count)
                 .filter_map(|i| start.clone().checked_add_days(Days::new(i as u64)))
+                .take_while(l)
                 .collect::<Vec<_>>()
         }
         Frequency::Monthly => {
             let count = end.month0() - start.month0() + 1;
             (0..count)
                 .filter_map(|i| start.clone().checked_add_months(Months::new(i)))
+                .take_while(l)
                 .collect::<Vec<_>>()
         }
         Frequency::Yearly => {
             let count = (end.year() - start.year()) as u32 + 1;
             (0..count)
                 .filter_map(|i| start.clone().checked_add_months(Months::new(12 * i)))
+                .take_while(l)
                 .collect::<Vec<_>>()
         }
         _ => vec![start.clone()],
@@ -862,7 +876,23 @@ DTSTAMP:20260803T160633Z
 END:VEVENT
 END:VCALENDAR"#;
 
-    // Tests for the CalendarModel
+    const TEST_DATA_FREQ_DAILY: &str = r#"BEGIN:VCALENDAR
+VERSION:2.0
+METHOD:PUBLISH
+PRODID:-//uk.gov/GOVUK calendars//EN
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+DTSTAMP:20261025T210804Z
+UID:1788956088239-64929@ical.marudot.com
+DTSTART;TZID=Europe/London:20261109T000000
+RRULE:FREQ=DAILY;UNTIL=20261113T000000Z
+DTEND;TZID=Europe/London:20261113T235500
+SUMMARY:Daily occurring for a week
+DESCRIPTION:Description of an event that happens every work day for a week
+LOCATION:Sao Paulo
+END:VEVENT
+END:VCALENDAR"#;
+
     #[rstest]
     fn snapshot_test() -> anyhow::Result<()> {
         let reader = Cursor::new(TEST_DATA_FULL.as_bytes());
@@ -887,23 +917,6 @@ END:VCALENDAR"#;
         assert_eq!(event.start.day(), 31);
         Ok(())
     }
-
-    const TEST_DATA_FREQ_DAILY: &str = r#"BEGIN:VCALENDAR
-VERSION:2.0
-METHOD:PUBLISH
-PRODID:-//uk.gov/GOVUK calendars//EN
-CALSCALE:GREGORIAN
-BEGIN:VEVENT
-DTSTAMP:20261025T210804Z
-UID:1788956088239-64929@ical.marudot.com
-DTSTART;TZID=Europe/London:20261109T000000
-RRULE:FREQ=DAILY;UNTIL=20261113T000000Z
-DTEND;TZID=Europe/London:20261113T235500
-SUMMARY:Daily occurring for a week
-DESCRIPTION:Description of an event that happens every work day for a week
-LOCATION:Sao Paulo
-END:VEVENT
-END:VCALENDAR"#;
 
     #[rstest]
     fn daily_recurring_test() -> anyhow::Result<()> {
@@ -975,4 +988,6 @@ END:VCALENDAR"#;
         assert_eq!(start_event.start.year(), 2026);
         Ok(())
     }
+
+    // TODO: Test the limiting functionality
 }
