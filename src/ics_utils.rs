@@ -1,7 +1,10 @@
 use crate::models::{Event, EventStore};
 
 use anyhow::Context;
-use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{
+    DateTime, Datelike, Days, Months, NaiveDate, NaiveDateTime, TimeZone, Utc,
+    offset::LocalResult::Single,
+};
 use ical::IcalParser;
 use std::io::BufRead;
 
@@ -84,17 +87,45 @@ fn parse_frequency<T: TimeZone>(input: &str, tz: &T) -> Option<(Frequency, DateT
     let input = input.to_uppercase();
     let mut freq = Some(Frequency::None);
     let mut until: Option<DateTime<T>> = None;
-    for test in input.split(';') {
-        if let Some(freq_text) = test.strip_prefix("FREQ=") {
+
+    // RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14
+    if let Some((freq_kv, rest)) = input.split_once(';') {
+        if let Some(freq_text) = freq_kv.strip_prefix("FREQ=") {
             match freq_text.to_uppercase().as_str() {
                 "DAILY" => freq = Some(Frequency::Daily),
                 "MONTHLY" => freq = Some(Frequency::Monthly),
                 "YEARLY" => freq = Some(Frequency::Yearly),
                 _ => freq = Some(Frequency::None),
             }
-        } else if let Ok(until_dt) = parse_start(test.strip_prefix("UNTIL="), tz) {
-            until = Some(until_dt)
-            //until = Some(parse_start(Some(until_text), tz)?);
+        }
+
+        let mut month: Option<u32> = None;
+        let mut month_day: Option<u32> = None;
+        for kv in rest.split(';') {
+            until = parse_start(kv.strip_prefix("UNTIL="), tz).ok();
+
+            if let Some(month_val) = kv
+                .strip_prefix("BYMONTH=")
+                .and_then(|d| d.parse::<u32>().ok())
+            {
+                month = Some(month_val);
+            }
+
+            if let Some(month_day_val) = kv
+                .strip_prefix("BYMONTHDAY=")
+                .and_then(|d| d.parse::<u32>().ok())
+            {
+                month_day = Some(month_day_val);
+            }
+        }
+
+        // Case where BYMONTH and BYMONTHDAY are available
+        if until.is_none()
+            && let Some(month) = month
+            && let Some(month_day) = month_day
+            && let Single(dt) = tz.with_ymd_and_hms(REPEAT_EVENT_YEAR, month, month_day, 23, 59, 59)
+        {
+            until = Some(dt);
         }
     }
 
@@ -893,6 +924,21 @@ LOCATION:Sao Paulo
 END:VEVENT
 END:VCALENDAR"#;
 
+    const TEST_DATA_FREQ_YEARLY: &str = r#"BEGIN:VCALENDAR
+VERSION:2.0
+METHOD:PUBLISH
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+DTSTAMP:20261025T210804Z
+DTSTART;VALUE=DATE:20260314
+RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14
+DTEND;VALUE=DATE:20260315
+SUMMARY:Birthday - Friend
+DESCRIPTION:My friend's birthday
+LOCATION:Sao Paulo - Brazil
+END:VEVENT
+END:VCALENDAR"#;
+
     #[rstest]
     fn snapshot_test() -> anyhow::Result<()> {
         let reader = Cursor::new(TEST_DATA_FULL.as_bytes());
@@ -986,6 +1032,52 @@ END:VCALENDAR"#;
         assert_eq!(start_event.start.day(), 13);
         assert_eq!(start_event.start.month(), 11);
         assert_eq!(start_event.start.year(), 2026);
+        Ok(())
+    }
+
+    #[rstest]
+    fn yearly_recurring_start_inclusive() -> anyhow::Result<()> {
+        let reader = Cursor::new(TEST_DATA_FREQ_YEARLY.as_bytes());
+        let store = read_events(reader, &Local)?;
+
+        // Check the start and end are inclusive
+        let start = Local
+            .with_ymd_and_hms(2026, 3, 14, 0, 0, 0)
+            .single()
+            .context("error creating the range value")?;
+        let end = start.checked_add_days(Days::new(1)).unwrap();
+
+        let start_events = store.by_range(start, end).unwrap();
+        assert_eq!(start_events.len(), 1);
+
+        let start_event = &start_events[0];
+        assert_eq!(start_event.start.day(), 14);
+        assert_eq!(start_event.start.month(), 3);
+        assert_eq!(start_event.start.year(), 2026);
+        Ok(())
+    }
+
+    #[rstest]
+    fn yearly_recurring_end_inclusive() -> anyhow::Result<()> {
+        // This test makes sure that the event is available until
+        // the year before the limit REPEAT_EVENT_YEAR.
+        let reader = Cursor::new(TEST_DATA_FREQ_YEARLY.as_bytes());
+        let store = read_events(reader, &Local)?;
+
+        // Check the start and end are inclusive
+        let start = Local
+            .with_ymd_and_hms(2039, 3, 14, 0, 0, 0)
+            .single()
+            .context("error creating the range value")?;
+        let end = start.checked_add_days(Days::new(1)).unwrap();
+
+        let start_events = store.by_range(start, end).unwrap();
+        assert_eq!(start_events.len(), 1);
+
+        let start_event = &start_events[0];
+        assert_eq!(start_event.start.day(), 14);
+        assert_eq!(start_event.start.month(), 3);
+        assert_eq!(start_event.start.year(), 2039);
         Ok(())
     }
 
