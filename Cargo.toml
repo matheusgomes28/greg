@@ -1,16 +1,3 @@
-[package]
-name = "greg"
-version = "0.1.0"
-description = "A TUI terminal written in Rust"
-edition = "2024"
-
-[dependencies]
-anyhow = "1.0.102"
-chrono = "0.4.44"
-clap = { version = "4.6.5", features = ["derive"] }
-crossterm = "0.29.0"
-ical = "0.11.0"
-ratatui = "0.30.0"
-
-[dev-dependencies]
-rstest = "0.26.1"
+[workspace]
+resolver = "3"
+members = ["calendar"]
