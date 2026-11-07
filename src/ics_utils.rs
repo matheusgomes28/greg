@@ -1,46 +1,171 @@
 use crate::models::{Event, EventStore};
 
 use anyhow::Context;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{
+    DateTime, Datelike, Days, Months, NaiveDate, NaiveDateTime, TimeZone, Utc,
+    offset::LocalResult::Single,
+};
 use ical::IcalParser;
 use std::io::BufRead;
 
-pub fn read_events<R: BufRead, T: TimeZone>(source: R, tz: &T) -> anyhow::Result<EventStore<T>> {
-    let mut store = EventStore::<T>::default();
+#[derive(Clone)]
+enum Frequency {
+    None,
+    Daily,
+    Monthly,
+    Yearly,
+}
 
-    let reader = IcalParser::new(source);
-    for entry in reader {
-        let calendar = entry?;
-        for event in calendar.events {
-            let mut start: Option<DateTime<T>> = None;
-            let mut summary = String::from("");
+// The year limit for all repeating events. We will
+// duplicate events until this year (not inclusive)!
+const REPEAT_EVENT_YEAR: i32 = 2040;
+// TODO: The above should probably be dynamic per event,
+// TODO: but I really doubt I'll be using this calendar
+// TODO: after 2040!
 
-            for prop in &event.properties {
-                match prop.name.as_str() {
-                    "DTSTART" => start = Some(parse_start(prop.value.as_deref(), tz)?),
-                    "SUMMARY" => summary = prop.value.clone().unwrap_or(String::from("")),
-                    _ => {}
-                }
+/// Given the start and end of an event with a frequency,
+/// this function will duplicate the event with the updated
+/// start day according to the frequency given.
+///
+/// # Examples
+///
+/// ```
+/// use chrono::{TimeZone, Utc};
+/// use my_crate::{expand_event, Frequency};
+///
+/// let start = Utc.with_ymd_and_hms(2026, 11, 9, 0, 0, 0).unwrap();
+/// let end = Utc.with_ymd_and_hms(2026, 11, 13, 0, 0, 0).unwrap();
+///
+/// let days = expand_event(&start, &end, Frequency::Daily);
+///
+/// assert_eq!(days.len(), 5);
+/// assert_eq!(days[0], start);
+/// assert_eq!(days[4], end);
+/// ```
+fn expand_event<T: TimeZone>(
+    start: &DateTime<T>,
+    end: &DateTime<T>,
+    freq: Frequency,
+) -> Vec<DateTime<T>> {
+    // Comparison functions to limit the number of
+    // events duplicated
+    let l = |d: &DateTime<T>| d.year() < REPEAT_EVENT_YEAR;
+
+    match freq {
+        Frequency::Daily => {
+            let count = (end.date_naive() - start.date_naive()).num_days() + 1;
+
+            (0..count)
+                .filter_map(|i| start.clone().checked_add_days(Days::new(i as u64)))
+                .take_while(l)
+                .collect::<Vec<_>>()
+        }
+        Frequency::Monthly => {
+            let count = end.month0() - start.month0() + 1;
+            (0..count)
+                .filter_map(|i| start.clone().checked_add_months(Months::new(i)))
+                .take_while(l)
+                .collect::<Vec<_>>()
+        }
+        Frequency::Yearly => {
+            let count = (end.year() - start.year()) as u32 + 1;
+            (0..count)
+                .filter_map(|i| start.clone().checked_add_months(Months::new(12 * i)))
+                .take_while(l)
+                .collect::<Vec<_>>()
+        }
+        _ => vec![start.clone()],
+    }
+}
+
+fn parse_frequency<T: TimeZone>(
+    input: &str,
+    start: &DateTime<T>,
+    tz: &T,
+) -> Option<(Frequency, DateTime<T>)> {
+    if !input.starts_with("FREQ") {
+        return None;
+    }
+
+    // TODO: This could be a problem if parsing in the
+    // TODO: ics standard is case sensitive
+    let input = input.to_uppercase();
+    let mut freq = Some(Frequency::None);
+    let mut until: Option<DateTime<T>> = None;
+
+    // RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14
+    if let Some((freq_kv, rest)) = input.split_once(';') {
+        if let Some(freq_text) = freq_kv.strip_prefix("FREQ=") {
+            match freq_text.to_uppercase().as_str() {
+                "DAILY" => freq = Some(Frequency::Daily),
+                "MONTHLY" => freq = Some(Frequency::Monthly),
+                "YEARLY" => freq = Some(Frequency::Yearly),
+                _ => freq = Some(Frequency::None),
+            }
+        }
+
+        let mut month: Option<u32> = None;
+        let mut month_day: Option<u32> = None;
+        let mut count: Option<u32> = None;
+        for kv in rest.split(';') {
+            until = parse_start(kv.strip_prefix("UNTIL="), tz).ok();
+
+            if let Some(month_val) = kv
+                .strip_prefix("BYMONTH=")
+                .and_then(|d| d.parse::<u32>().ok())
+            {
+                month = Some(month_val);
             }
 
-            if start.is_none() {
-                anyhow::bail!("start time not found");
+            if let Some(month_day_val) = kv
+                .strip_prefix("BYMONTHDAY=")
+                .and_then(|d| d.parse::<u32>().ok())
+            {
+                month_day = Some(month_day_val);
             }
 
-            let start = start.unwrap();
-            store.add(
-                start.clone(),
-                Event::<T> {
-                    title: summary.clone(),
-                    desc: summary,
-                    start: start.clone(),
-                    end: start,
-                },
-            );
+            if let Some(count_val) = kv
+                .strip_prefix("COUNT=")
+                .and_then(|d| d.parse::<u32>().ok())
+            {
+                // COUNT = 1 means only start event, so keep this
+                // count as the number of repeats
+                count = Some(std::cmp::max(count_val - 1, 0));
+            }
+        }
+
+        // Case where BYMONTH and BYMONTHDAY are available
+        if until.is_none()
+            && let Some(month) = month
+            && let Some(month_day) = month_day
+            && let Single(dt) = tz.with_ymd_and_hms(REPEAT_EVENT_YEAR, month, month_day, 23, 59, 59)
+        {
+            until = Some(dt);
+        }
+
+        // Case where we COUNT is present
+        if until.is_none()
+            && let Some(count) = count.map(|c| c as i32)
+            && let Single(dt) = tz.with_ymd_and_hms(
+                std::cmp::min(REPEAT_EVENT_YEAR, start.year() + count),
+                start.month(),
+                start.day(),
+                23,
+                59,
+                59,
+            )
+        {
+            until = Some(dt);
         }
     }
 
-    Ok(store)
+    freq.clone()?;
+    // bail!("frequency is invalid: {}", input);
+
+    until.clone()?;
+    // bail!("frequency end is invalid: {}", input);
+
+    Some((freq.unwrap(), until.unwrap()))
 }
 
 fn parse_start<T: TimeZone>(dt_str: Option<&str>, tz: &T) -> anyhow::Result<DateTime<T>> {
@@ -69,6 +194,78 @@ fn parse_start<T: TimeZone>(dt_str: Option<&str>, tz: &T) -> anyhow::Result<Date
         .context("ambiguous or invalid datatime")
 }
 
+pub fn read_events<R: BufRead, T: TimeZone>(source: R, tz: &T) -> anyhow::Result<EventStore<T>> {
+    let mut store = EventStore::<T>::default();
+
+    let reader = IcalParser::new(source);
+    for entry in reader {
+        let calendar = entry?;
+        for event in calendar.events {
+            let mut start: Option<DateTime<T>> = None;
+            let mut end: Option<DateTime<T>> = None;
+            let mut freq: Option<Frequency> = None;
+            let mut freq_end: Option<DateTime<T>> = None;
+            let mut freq_str: Option<String> = None;
+            let mut summary = String::from("");
+
+            for prop in &event.properties {
+                match prop.name.as_str() {
+                    "DTSTART" => start = Some(parse_start(prop.value.as_deref(), tz)?),
+                    "DTEND" => end = Some(parse_start(prop.value.as_deref(), tz)?),
+                    "SUMMARY" => summary = prop.value.clone().unwrap_or(String::from("")),
+                    // Has to be parsed after start
+                    "RRULE" => {
+                        let val = prop.clone().value.unwrap_or(String::from(""));
+                        if val.starts_with("FREQ") {
+                            freq_str = Some(val);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if start.is_none() {
+                anyhow::bail!("start time not found");
+            }
+            let start = start.unwrap();
+
+            // parse frequency after as we require the start to
+            // be populated
+            if let Some(freq_str) = freq_str
+                && let Some((freq_enum, freq_until)) = parse_frequency(&freq_str, &start, tz)
+                && start.date_naive() < freq_until.date_naive()
+            {
+                freq = Some(freq_enum);
+                freq_end = Some(freq_until);
+            }
+
+            // Repeat events in the store if they have frequency
+            let mut to_add = vec![start.clone()];
+
+            if let Some(freq_end) = freq_end
+                && let Some(freq) = freq
+            {
+                let start = start;
+                to_add = expand_event(&start, &freq_end, freq);
+            }
+
+            for date in to_add {
+                store.add(
+                    date.clone(),
+                    Event::<T> {
+                        title: summary.clone(),
+                        desc: summary.clone(),
+                        start: date.clone(),
+                        end: end.clone().unwrap(),
+                    },
+                );
+            }
+        }
+    }
+
+    Ok(store)
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -78,7 +275,7 @@ mod tests {
     use chrono::{Datelike, Duration, Local};
     use rstest::rstest;
 
-    const TEST_DATA: &str = r#"BEGIN:VCALENDAR
+    const TEST_DATA_FULL: &str = r#"BEGIN:VCALENDAR
 VERSION:2.0
 METHOD:PUBLISH
 PRODID:-//uk.gov/GOVUK calendars//EN
@@ -749,10 +946,9 @@ DTSTAMP:20260803T160633Z
 END:VEVENT
 END:VCALENDAR"#;
 
-    // Tests for the CalendarModel
     #[rstest]
     fn snapshot_test() -> anyhow::Result<()> {
-        let reader = Cursor::new(TEST_DATA.as_bytes());
+        let reader = Cursor::new(TEST_DATA_FULL.as_bytes());
 
         let store = read_events(reader, &Local)?;
 
@@ -774,4 +970,123 @@ END:VCALENDAR"#;
         assert_eq!(event.start.day(), 31);
         Ok(())
     }
+
+    #[rstest]
+    #[case::same_week_month(9, 11, 2026, 13, 11, 2026, "RRULE:FREQ=DAILY;UNTIL=20261113T000000Z")]
+    #[case::different_month(9, 11, 2026, 4, 12, 2026, "RRULE:FREQ=DAILY;UNTIL=20261204T000000Z")]
+    #[case::one_day(9, 11, 2026, 9, 11, 2026, "RRULE:FREQ=DAILY;UNTIL=20261109T000000Z")]
+    fn daily_recurring_test(
+        #[case] start_day: u32,
+        #[case] start_month: u32,
+        #[case] start_year: i32,
+        #[case] exp_end_day: u32,
+        #[case] exp_end_month: u32,
+        #[case] exp_end_year: i32,
+        #[case] rule_str: &str,
+    ) -> anyhow::Result<()> {
+        const TEST_DATA_TPL: &str = r#"BEGIN:VCALENDAR
+VERSION:2.0
+METHOD:PUBLISH
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+DTSTAMP:20261025T210804Z
+DTSTART;TZID=Europe/London:20261109T000000
+{RULE_FORMAT}
+DTEND;TZID=Europe/London:20261113T235500
+DESCRIPTION:Description of an event that happens every work day for a week
+END:VEVENT
+END:VCALENDAR"#;
+
+        let test_data = TEST_DATA_TPL.replace("{RULE_FORMAT}", rule_str);
+        let reader = Cursor::new(test_data.as_bytes());
+        let store = read_events(reader, &Local)?;
+
+        let start = Local
+            .with_ymd_and_hms(start_year, start_month, start_day, 0, 0, 0)
+            .unwrap();
+        let end = Local
+            .with_ymd_and_hms(exp_end_year, exp_end_month, exp_end_day, 23, 59, 59)
+            .unwrap();
+
+        // We're including both start and end, so add one
+        let count = (end.date_naive() - start.date_naive()).num_days() + 1;
+
+        let events = store.by_range(start, end).unwrap();
+        assert_eq!(events.len(), count as usize);
+
+        // check start event is included
+        let start_event = &events[0];
+        assert_eq!(start_event.start.day(), start_day);
+        assert_eq!(start_event.start.month(), start_month);
+        assert_eq!(start_event.start.year(), start_year);
+
+        // Check end event is included
+        let end_event = &events[(count - 1) as usize];
+        assert_eq!(end_event.start.day(), exp_end_day);
+        assert_eq!(end_event.start.month(), exp_end_month);
+        assert_eq!(end_event.start.year(), exp_end_year);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::recurring_until_limit(14, 3, 2026, 2039, "RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14")]
+    #[case::one_count(14, 3, 2026, 2026, "RRULE:FREQ=YEARLY;COUNT=1")]
+    #[case::count_limited(14, 3, 2026, 2039, "RRULE:FREQ=YEARLY;COUNT=100")]
+    fn yearly_recurring_test(
+        #[case] start_day: u32,
+        #[case] start_month: u32,
+        #[case] start_year: i32,
+        #[case] exp_end_year: i32,
+        #[case] rule_str: &str,
+    ) -> anyhow::Result<()> {
+        const TEST_DATA_TPL: &str = r#"BEGIN:VCALENDAR
+VERSION:2.0
+METHOD:PUBLISH
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+DTSTAMP:20261025T210804Z
+DTSTART;VALUE=DATE:20260314
+{RULE_FORMAT}
+DTEND;VALUE=DATE:20260315
+SUMMARY:Birthday - Friend
+DESCRIPTION:My friend's birthday
+END:VEVENT
+END:VCALENDAR"#;
+
+        let test_data = TEST_DATA_TPL.replace("{RULE_FORMAT}", rule_str);
+        let reader = Cursor::new(test_data.as_bytes());
+        let store = read_events(reader, &Local)?;
+
+        // We're including both start and end, so add one
+        let count = exp_end_year - start_year + 1;
+
+        // Check the start and end are inclusive
+        let start = Local
+            .with_ymd_and_hms(start_year, start_month, start_day, 0, 0, 0)
+            .single()
+            .context("error creating the range value")?;
+        let end = start
+            .checked_add_months(Months::new(12 * (count as u32)))
+            .unwrap();
+
+        let events = store.by_range(start, end).unwrap();
+        assert_eq!(events.len(), count as usize);
+
+        // check start event is included
+        let start_event = &events[0];
+        assert_eq!(start_event.start.day(), start_day);
+        assert_eq!(start_event.start.month(), start_month);
+        assert_eq!(start_event.start.year(), start_year);
+
+        // Check end event is included
+        let end_event = &events[(count - 1) as usize];
+        assert_eq!(end_event.start.day(), start_day);
+        assert_eq!(end_event.start.month(), start_month);
+        assert_eq!(end_event.start.year(), exp_end_year);
+
+        Ok(())
+    }
+
+    // TODO: Test the limiting functionality
 }

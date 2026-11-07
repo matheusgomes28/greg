@@ -10,7 +10,7 @@ use crate::{
 };
 
 use anyhow::Context;
-use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 
 use ratatui::{DefaultTerminal, Frame};
@@ -63,14 +63,20 @@ const SELECTED_STYLE: DayStyle = DayStyle::Highlighted(DayColor::Blue);
 const EVENT_STYLE: DayStyle = DayStyle::Colored(DayColor::Green);
 
 impl Default for App {
+    // This cannot be used for testing because it creates the calendar for today!
     fn default() -> Self {
         let time_now = Local::now();
+        App::new(time_now)
+    }
+}
 
-        let calendar_model = CalendarModel::from(time_now);
+impl App {
+    pub fn new(dt: DateTime<Local>) -> Self {
+        let calendar_model = CalendarModel::from(dt);
 
-        let this_day = time_now.day() as u8;
-        let this_month = time_now.month() as u8;
-        let this_year = time_now.year();
+        let this_day = dt.day() as u8;
+        let this_month = dt.month() as u8;
+        let this_year = dt.year();
         let mode = AppMode::MonthView;
 
         App {
@@ -82,9 +88,9 @@ impl Default for App {
                 title: String::from(&mode),
                 month_name: calendar_model.month_name,
                 start_day: calendar_model.start_day,
-                year: time_now.year(),
+                year: dt.year(),
                 n_days: calendar_model.n_days as usize,
-                styled_days: vec![(time_now.day() as u8, TODAY_STYLE)],
+                styled_days: vec![(dt.day() as u8, TODAY_STYLE)],
                 events: None,
             },
 
@@ -97,9 +103,7 @@ impl Default for App {
             ics_directory: None,
         }
     }
-}
 
-impl App {
     // TODO: I don't like this, but it looks rustonic...
     pub fn with_ics_dir(&self, ics_directory: Option<String>) -> anyhow::Result<Self> {
         let mut ret = self.clone();
@@ -382,22 +386,20 @@ mod tests {
 
     // View mode tests
     #[rstest]
-    #[case::jan_2026(false, 1, 2026, 2, 2026)]
-    #[case::dec_2026(false, 12, 2026, 1, 2027)]
-    #[case::dec_1999(false, 12, 1999, 1, 2000)]
+    #[case::jan_2026(1, 2026, 2, 2026)]
+    #[case::dec_2026(12, 2026, 1, 2027)]
+    #[case::dec_1999(12, 1999, 1, 2000)]
     fn next_calendar(
-        #[case] exit: bool,
         #[case] current_month: u8,
         #[case] current_year: i32,
         #[case] exp_month: u8,
         #[case] exp_year: i32,
     ) -> anyhow::Result<()> {
-        let mut app = App {
-            exit,
-            current_month,
-            current_year,
-            ..Default::default()
-        };
+        let mut app = App::new(
+            Local
+                .with_ymd_and_hms(current_year, current_month as u32, 1, 0, 0, 0)
+                .unwrap(),
+        );
 
         app.next_calendar();
         assert_eq!(exp_month, app.current_month);
@@ -415,12 +417,11 @@ mod tests {
         #[case] exp_month: u8,
         #[case] exp_year: i32,
     ) -> anyhow::Result<()> {
-        let mut app = App {
-            exit: false,
-            current_month,
-            current_year,
-            ..Default::default()
-        };
+        let mut app = App::new(
+            Local
+                .with_ymd_and_hms(current_year, current_month as u32, 1, 0, 0, 0)
+                .unwrap(),
+        );
 
         app.prev_calendar();
         assert_eq!(exp_month, app.current_month);
@@ -440,14 +441,18 @@ mod tests {
         #[case] current_year: i32,
         #[case] exp_day: u8,
     ) -> anyhow::Result<()> {
-        let mut app = App {
-            exit: false,
-            current_month,
-            current_year,
-            selected_day: current_day,
-            mode: AppMode::DaySelection,
-            ..Default::default()
-        };
+        let mut app = App::new(
+            Local
+                .with_ymd_and_hms(
+                    current_year,
+                    current_month as u32,
+                    current_day as u32,
+                    0,
+                    0,
+                    0,
+                )
+                .unwrap(),
+        );
 
         app.selection_right();
         assert_eq!(app.selected_day, exp_day);
@@ -466,14 +471,18 @@ mod tests {
         #[case] current_year: i32,
         #[case] exp_day: u8,
     ) -> anyhow::Result<()> {
-        let mut app = App {
-            exit: false,
-            current_month,
-            current_year,
-            selected_day: current_day,
-            mode: AppMode::DaySelection,
-            ..Default::default()
-        };
+        let mut app = App::new(
+            Local
+                .with_ymd_and_hms(
+                    current_year,
+                    current_month as u32,
+                    current_day as u32,
+                    0,
+                    0,
+                    0,
+                )
+                .unwrap(),
+        );
 
         app.selection_left();
         assert_eq!(app.selected_day, exp_day);
@@ -492,14 +501,18 @@ mod tests {
         #[case] current_year: i32,
         #[case] exp_day: u8,
     ) -> anyhow::Result<()> {
-        let mut app = App {
-            exit: false,
-            current_month,
-            current_year,
-            selected_day: current_day,
-            mode: AppMode::DaySelection,
-            ..Default::default()
-        };
+        let mut app = App::new(
+            Local
+                .with_ymd_and_hms(
+                    current_year,
+                    current_month as u32,
+                    current_day as u32,
+                    0,
+                    0,
+                    0,
+                )
+                .unwrap(),
+        );
 
         app.selection_down();
         assert_eq!(app.selected_day, exp_day);
@@ -518,14 +531,18 @@ mod tests {
         #[case] current_year: i32,
         #[case] exp_day: u8,
     ) -> anyhow::Result<()> {
-        let mut app = App {
-            exit: false,
-            current_month,
-            current_year,
-            selected_day: current_day,
-            mode: AppMode::DaySelection,
-            ..Default::default()
-        };
+        let mut app = App::new(
+            Local
+                .with_ymd_and_hms(
+                    current_year,
+                    current_month as u32,
+                    current_day as u32,
+                    0,
+                    0,
+                    0,
+                )
+                .unwrap(),
+        );
 
         app.selection_up();
         assert_eq!(app.selected_day, exp_day);
